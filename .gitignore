@@ -1,16 +1,19 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
-# dependencies
+# =====================
+# Dependencies
+# =====================
 node_modules/
 
+# =====================
 # Expo
+# =====================
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Native
-.kotlin/
+# =====================
+# Native secrets / keys (KEEP)
+# =====================
 *.orig.*
 *.jks
 *.p8
@@ -18,38 +21,50 @@ expo-env.d.ts
 *.key
 *.mobileprovision
 
+# =====================
 # Metro
+# =====================
 .metro-health-check*
 
-# debug
+# =====================
+# Debug logs
+# =====================
 npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# =====================
 # macOS
+# =====================
 .DS_Store
 *.pem
 
-# local env files
+# =====================
+# Env files
+# =====================
 .env*.local
 
-# typescript
+# =====================
+# TypeScript
+# =====================
 *.tsbuildinfo
 
+# =====================
+# Keep example folder ignored if not needed
+# =====================
 app-example
 
-# generated native folders
-/ios
-/android
-/ios/build
-/android/build
+# =====================
+# IMPORTANT: Native folders
+# =====================
+# DO NOT ignore ios/android for dev-client or prebuild projects
+# ios/
+# android/
 
-# pods
-/ios/Pods
+# =====================
+# Build outputs ONLY (safe to ignore)
+# =====================
+/ios/build
 /android/app/build
 /android/app/build/outputs
-/android/app/build/outputs/apk
-/android/app/build/outputs/apk/debug
-/android/app/build/outputs/apk/release
-/android/app/build/outputs/apk/debug/app-debug.apk
-/android/app/build/outputs/apk/release/app-release.apk
+/ios/Pods/

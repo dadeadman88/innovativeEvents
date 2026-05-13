@@ -2,17 +2,23 @@ import AskDialog from "@/components/AskDialog";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
+import { AuthActions } from "@/redux/actions/AuthActions";
+import { LogoutUser } from "@/redux/slices/AuthSlice";
+import { AppDispatch, RootState } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
 import { router } from "expo-router";
 import * as React from "react";
 import { moderateScale } from "react-native-size-matters";
 import { Image, Switch, Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { useDispatch, useSelector } from "react-redux";
 
 const Profile = () => {
+    const dispatch = useDispatch<AppDispatch>();
     const [pushEnabled, setPushEnabled] = React.useState(true);
     const [askLogoutVisible, setAskLogoutVisible] = React.useState(false);
     const [askDeleteVisible, setAskDeleteVisible] = React.useState(false);
-
+    const fullName = useSelector((state: RootState) => state.auth.user?.fullName);
+    const email = useSelector((state: RootState) => state.auth.user?.email);
     const Row = ({
         icon,
         label,
@@ -68,7 +74,7 @@ const Profile = () => {
             {/* Profile Header */}
             <View marginT-10>
                 <Image
-                    source={{ uri: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=3000&auto=format&fit=crop" }}
+                    source={{ uri: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTxoVYK9gVqDWkfv3blKuxWEO0t9JrH6XSjxg&s" }}
                     style={{
                         width: moderateScale(72),
                         height: moderateScale(72),
@@ -77,10 +83,10 @@ const Profile = () => {
                 />
 
                 <Text marginT-16 bold large28 style={{ color: "#fff" }}>
-                    Martinez
+                    {fullName}
                 </Text>
                 <Text marginT-6 regular regularSize style={{ color: "#818898" }}>
-                    martinez.curtis@example.com
+                    {email}
                 </Text>
 
                 <TouchableOpacity
@@ -204,6 +210,7 @@ const Profile = () => {
                 onNo={() => setAskLogoutVisible(false)}
                 onYes={() => {
                     setAskLogoutVisible(false);
+                    dispatch(LogoutUser());
                     router.replace("/login");
                 }}
             />
@@ -221,9 +228,15 @@ const Profile = () => {
                     size: moderateScale(30),
                 }}
                 onNo={() => setAskDeleteVisible(false)}
-                onYes={() => {
+                onYes={async () => {
                     setAskDeleteVisible(false);
-                    router.replace("/login");
+                    try {
+                        await dispatch(AuthActions.DeleteAccount()).unwrap();
+                        dispatch(LogoutUser());
+                        router.replace("/getStarted");
+                    } catch {
+                        // error toast from AxiosInterceptor
+                    }
                 }}
             />
         </Container>

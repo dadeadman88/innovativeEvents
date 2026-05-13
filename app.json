@@ -35,8 +35,9 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Splash.png",
-          "resizeMode": "cover"
+          "image": "./assets/images/splash_logo.png",
+          "resizeMode": "cover",
+          "backgroundColor": "#000000"
         }
       ],
       [
@@ -52,7 +53,8 @@
         }
       ],
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -3,22 +3,65 @@ import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
 import Input from "@/components/Input";
-import { router } from "expo-router";
+import { AuthActions } from "@/redux/actions/AuthActions";
+import { useToast } from "@/redux/actions/hooks/useOthers";
+import { AppDispatch } from "@/redux/store";
+import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import { useState } from "react";
 import { TouchableOpacity } from "react-native";
 import { verticalScale } from "react-native-size-matters";
-import { Text, View } from "react-native-ui-lib";
+import { Text, ToastPresets, View } from "react-native-ui-lib";
+import { useDispatch } from "react-redux";
 
 const CreatePassword = () => {
+  const dispatch = useDispatch<AppDispatch>();
+  const { Toaster } = useToast();
+  const params = useLocalSearchParams<{ email?: string | string[] }>();
+  const email = Array.isArray(params.email) ? params.email[0] : params.email;
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const handleContinue = () => {
-    if (password && password === confirmPassword) {
+  const handleContinue = async () => {
+    if (!email) {
+      Toaster({
+        visible: true,
+        message: "Email is missing. Please retry forgot password.",
+        preset: ToastPresets.FAILURE,
+      });
+      return;
+    }
+
+    if (password.length < 8) {
+      Toaster({
+        visible: true,
+        message: "Please enter more than 8 characters for password",
+        preset: ToastPresets.FAILURE,
+      });
+      return;
+    }
+
+    if (!password || password !== confirmPassword) return;
+
+    try {
+      await dispatch(
+        AuthActions.ResetPassword({
+          email,
+          new_password: password,
+        })
+      ).unwrap();
+
+      Toaster({
+        visible: true,
+        message: "Password successfully updated",
+        preset: ToastPresets.SUCCESS,
+      });
       router.replace("/login");
+    } catch {
+      // Errors are handled by AxiosInterceptor global toast
     }
   };
 

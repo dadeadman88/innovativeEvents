@@ -5,6 +5,10 @@ import { Alert, Dimensions, Platform } from "react-native";
 export const SCREEN_WIDTH = Dimensions.get("window").width;
 export const SCREEN_HEIGHT = Dimensions.get("window").height;
 
+/** Shown on provider home when the logged-in user has no profile image URL from the API. */
+export const CONTRACTOR_PROFILE_AVATAR_URL =
+  "https://thumbs.dreamstime.com/b/faceless-businessman-avatar-man-suit-blue-tie-human-profile-userpic-face-features-web-picture-gentlemen-85824471.jpg";
+
 export const CheckIfValid = (
   index: number,
   isValid: boolean,

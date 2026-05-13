@@ -2,14 +2,15 @@ import BackButton from "@/components/BackButton";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import SuccessDialog from "@/components/SuccessDialog";
+import { useToast } from "@/redux/actions/hooks/useOthers";
 import { SCREEN_HEIGHT, SCREEN_WIDTH } from "@/utils/constants";
 import { theme } from "@/utils/designSystem";
 import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { TextInput } from "react-native";
 import { moderateScale } from "react-native-size-matters";
-import { Dialog, Image, Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { Dialog, Image, Text, ToastPresets, TouchableOpacity, View } from "react-native-ui-lib";
 
 const verficationBenefits = [
     "Receive a Verified Badge on your Profile",
@@ -19,7 +20,13 @@ const verficationBenefits = [
 ]
 
 const Otp = () => {
-    const { email = "example@gmail.com" } = useLocalSearchParams();
+    const { Toaster } = useToast();
+    const params = useLocalSearchParams<{
+        email?: string | string[];
+        code?: string | string[];
+        role?: string | string[];
+        scrn?: string | string[];
+    }>();
     const [otp, setOtp] = useState(["", "", "", ""]);
     const [dialogVisible, setDialogVisible] = useState(false);
     const [verificationDialogVisible, setVerificationDialogVisible] = useState(false);
@@ -29,7 +36,24 @@ const Otp = () => {
         useRef<TextInput>(null),
         useRef<TextInput>(null),
     ];
-    const { role, scrn } = useLocalSearchParams()
+
+    const normalizedEmail = Array.isArray(params.email) ? params.email[0] : params.email ?? "example@gmail.com";
+    const normalizedCode = Array.isArray(params.code) ? params.code[0] : params.code;
+    const role = Array.isArray(params.role) ? params.role[0] : params.role;
+    const scrn = Array.isArray(params.scrn) ? params.scrn[0] : params.scrn;
+
+    useEffect(() => {
+        if (!__DEV__ || scrn !== "login") return;
+
+        const raw =
+            typeof normalizedCode === "string"
+                ? normalizedCode
+                : normalizedCode == null
+                    ? ""
+                    : String(normalizedCode);
+        const digits = raw.replace(/\D/g, "").slice(0, 4);
+        if (digits.length === 4) setOtp(digits.split(""));
+    }, [normalizedCode, scrn]);
 
 
     const handleOtpChange = (value: string, index: number) => {
@@ -53,14 +77,48 @@ const Otp = () => {
     const handleContinue = () => {
         const code = otp.join("");
         if (code.length === 4) {
+            const expected = String(normalizedCode ?? "").replace(/\D/g, "").slice(0, 4);
+
             if (scrn == "forgotPassword") {
-                router.push({ pathname: "/createPassword", params: { email } });
+                if (expected && code === expected) {
+                    Toaster({
+                        visible: true,
+                        message: "Verification successful",
+                        preset: ToastPresets.SUCCESS,
+                    });
+                    router.push({ pathname: "/createPassword", params: { email: normalizedEmail } });
+                    return;
+                }
+
+                Toaster({
+                    visible: true,
+                    message: "Invalid code. Please try again.",
+                    preset: ToastPresets.FAILURE,
+                });
                 return;
             }
-            if (role == "provider" && scrn == "signup")
-                setVerificationDialogVisible(true);
-            else
-                setDialogVisible(true);
+
+            // Signup/Login OTP verification (temporary local check)
+            if (expected && code === expected) {
+                Toaster({
+                    visible: true,
+                    message: "Verification successful",
+                    preset: ToastPresets.SUCCESS,
+                });
+
+                router.replace(
+                    role === "provider"
+                        ? "/(main)/(provider)/(tabs)/home"
+                        : "/(main)/(customer)/(tabs)/home"
+                );
+                return;
+            }
+
+            Toaster({
+                visible: true,
+                message: "Invalid code. Please try again.",
+                preset: ToastPresets.FAILURE,
+            });
         }
     };
 
@@ -90,7 +148,7 @@ const Otp = () => {
                     style={{ color: "#818898", lineHeight: moderateScale(22) }}
                 >
                     We have just sent you 4 digit code via your email{" "}
-                    <Text semibold style={{ color: "#fff" }}>{email}</Text>
+                    <Text semibold style={{ color: "#fff" }}>{normalizedEmail}</Text>
                 </Text>
             </View>
 
@@ -157,7 +215,7 @@ const Otp = () => {
                 buttonLabel="Continue"
                 onButtonPress={() => {
                     if (scrn == "forgotPassword") {
-                        router.push({ pathname: "/createPassword", params: { email } });
+                        router.push({ pathname: "/createPassword", params: { email: normalizedEmail } });
                     } else if (role == "provider") {
                         if (scrn == "signup") {
                             router.push("/verifyProvider");

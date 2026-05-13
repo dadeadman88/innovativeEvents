@@ -4,6 +4,7 @@ import Container from "@/components/Container";
 import Icon from "@/components/Icon";
 import { theme } from "@/utils/designSystem";
 import * as React from "react";
+import { router } from "expo-router";
 import { moderateScale } from "react-native-size-matters";
 import { Image, Text, View } from "react-native-ui-lib";
 
@@ -15,36 +16,24 @@ const ProviderEventDetail = () => {
       containerProps={{ style: { paddingHorizontal: 0, paddingBottom: "4%" } }}
       scrollProps={{ showsVerticalScrollIndicator: false }}
     >
-      {/* Hero */}
-      <View style={{ position: "relative" }}>
-        <Image
-          source={{
-            uri: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?q=80&w=2940&auto=format&fit=crop",
-          }}
-          style={{ width: "100%", height: moderateScale(240) }}
-          resizeMode="cover"
-        />
-
-        {/* Header overlay */}
-        <View
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 0,
-            right: 0,
-            paddingHorizontal: "6%",
-            flexDirection: "row",
-            alignItems: "center",
-          }}
-        >
-          <BackButton style={{ marginBottom: 0, width: moderateScale(44), height: moderateScale(44) }} />
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text semibold regularSize style={{ color: "#fff" }}>
-              Event Details
-            </Text>
-          </View>
-          <View style={{ width: moderateScale(44) }} />
+      {/* Header (match About/Privacy screens) */}
+      <View
+        row
+        centerV
+        style={{
+          paddingTop: 8,
+          paddingBottom: 8,
+          paddingHorizontal: "6%",
+          alignItems: "center",
+        }}
+      >
+        <BackButton style={{ marginBottom: 0 }} />
+        <View style={{ flex: 1, alignItems: "center" }}>
+          <Text semibold regularSize style={{ color: "#fff" }}>
+            Event Details
+          </Text>
         </View>
+        <View style={{ width: moderateScale(50) }} />
       </View>
 
       {/* Content */}
@@ -155,7 +144,7 @@ const ProviderEventDetail = () => {
         <View marginT-26 marginB-10>
           <CustomButton
             label="Check-In"
-            onPress={() => {}}
+            onPress={() => router.push("/(main)/(provider)/StartJob")}
             backgroundColor={theme.color.primary}
             style={{ width: "100%" }}
           />

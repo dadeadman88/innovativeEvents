@@ -40,36 +40,6 @@ export const useLogin = () => {
   );
 };
 
-export const useSocialLogin = () => {
-  const dispatch = useDispatch<AppDispatch>();
-  const { Toaster } = useToast();
-  return useCallback(
-    async (credentials: {
-      type: "google" | "apple";
-      socialId: string;
-      email: string;
-      firstName: string;
-      lastName: string;
-      rememberMe: boolean;
-    }) => {
-      try {
-        const result = await dispatch(AuthActions.SocialLogin(credentials));
-        if (AuthActions.SocialLogin.fulfilled.match(result)) {
-          router.replace("/(main)/(tabs)/home");
-        }
-      } catch (err: any) {
-        const errorMessage = err.message || "Login failed";
-        Toaster({
-          visible: true,
-          message: errorMessage,
-          preset: ToastPresets.FAILURE,
-        });
-      }
-    },
-    [dispatch]
-  );
-};
-
 // Register Hook
 export const useRegister = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -98,45 +68,12 @@ export const useRegister = () => {
 // Logout Hook
 export const useLogout = () => {
   const dispatch = useDispatch<AppDispatch>();
-  const { Toaster } = useToast();
-
-  const logout = useCallback(async ({
-    refreshToken,
-    deviceId,
-  }: {
-    refreshToken: string;
-    deviceId: string;
-  }) => {
-    try {
-      const result = await dispatch(AuthActions.Logout({
-        refreshToken,
-        deviceId,
-      }));
-      if (AuthActions.Logout.fulfilled.match(result)) {
-        // API logout successful, clear local state
-        dispatch(LogoutUser());
-        router.replace("/getStarted");
-      }
-    } catch (err: any) {
-      // Always clear local state even if API fails
-      console.warn("Logout error, clearing local state anyway", err);
-      dispatch(LogoutUser());
-      const errorMessage = err.message || "Logout failed";
-      Toaster({
-        visible: true,
-        message: errorMessage,
-        preset: ToastPresets.FAILURE,
-      });
-    }
-  }, [dispatch]);
-
   const logoutLocal = useCallback(() => {
     dispatch(LogoutUser());
-    router.replace("/getStarted");
+    router.replace("/(initialRoute)/getStarted");
   }, [dispatch]);
 
   return {
-    logout,
     logoutLocal,
   };
 };
@@ -161,34 +98,6 @@ export const useForgotPassword = () => {
         return false;
       } catch (err: any) {
         const errorMessage = err.message || "Failed to send reset email";
-        Toaster({
-          visible: true,
-          message: errorMessage,
-          preset: ToastPresets.FAILURE,
-        });
-        return false;
-      }
-    },
-    [dispatch, Toaster]
-  );
-};
-
-// Guest Login Hook
-export const useGuestLogin = () => {
-  const dispatch = useDispatch<AppDispatch>();
-  const { Toaster } = useToast();
-
-  return useCallback(
-    async (nickname?: string) => {
-      try {
-        const result = await dispatch(AuthActions.GuestLogin(nickname));
-        if (AuthActions.GuestLogin.fulfilled.match(result)) {
-          router.replace("/(main)/(tabs)/home");
-          return true;
-        }
-        return false;
-      } catch (err: any) {
-        const errorMessage = err.message || "Failed to continue as guest";
         Toaster({
           visible: true,
           message: errorMessage,

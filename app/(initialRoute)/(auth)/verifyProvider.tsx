@@ -1,145 +1,309 @@
+import BackButton from "@/components/BackButton";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
-import Input from "@/components/Input";
-import PickerC from "@/components/PickerC";
+import { AuthActions } from "@/redux/actions/AuthActions";
+import { useToast } from "@/redux/actions/hooks/useOthers";
+import { AppDispatch } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
-import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
+import { useCallback, useMemo, useState } from "react";
+import { FlatList, Image, StyleSheet } from "react-native";
 import { moderateScale } from "react-native-size-matters";
-import { Image, Picker, Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { Text, ToastPresets, TouchableOpacity, View } from "react-native-ui-lib";
+import { useDispatch } from "react-redux";
+
+const docs = [
+  { key: "drivers_license", label: "Drivers license" },
+  { key: "passport", label: "Passport" },
+  { key: "sampling_licensure", label: "Sampling licensure" },
+  { key: "social_security_card", label: "Social Security card" },
+] as const;
+
+type DocKey = (typeof docs)[number]["key"];
+
+type PickedImage = {
+  id: string;
+  uri: string;
+  docKey: DocKey;
+  mimeType?: string | null;
+  fileName?: string | null;
+};
+
+function normalizeParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
 
 const VerifyProvider = () => {
-    const [serviceClass, setServiceClass] = React.useState("");
-    const [skills, setSkills] = React.useState("");
-    const [experience, setExperience] = React.useState("");
+  const dispatch = useDispatch<AppDispatch>();
+  const { Toaster } = useToast();
+  const [pickedImages, setPickedImages] = useState<PickedImage[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleContinue = () => {
-        router.push({
-            pathname: "/yourLocation",
-        });
-    };
+  const missingDocLabels = useMemo(() => {
+    return docs
+      .filter((doc) => !pickedImages.some((p) => p.docKey === doc.key))
+      .map((d) => d.label);
+  }, [pickedImages]);
 
-    return (
-        <Container appBar appBarTitle="Verify Yourself">
-            {/* Avatar Section */}
-            <View centerH marginT-30>
-                <View>
-                    <View br100 style={{ overflow: "hidden" }}>
-                        <Image
-                            source={{ uri: "https://images.unsplash.com/photo-1599566150163-29194dcaad36?q=80&w=3270&auto=format&fit=crop" }}
-                            width={moderateScale(100)}
-                            height={moderateScale(100)}
-                        />
-                    </View>
-                    <TouchableOpacity
-                        bg-accent
-                        br100
-                        padding-6
-                        style={{ position: "absolute", bottom: 0, right: 0 }}
-                    >
-                        <Icon vector="Ionicons" name="camera" size={16} color={theme.color.white} />
-                    </TouchableOpacity>
-                </View>
-            </View>
+  const openPickerForDoc = useCallback(async (docKey: DocKey) => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") return;
 
-            {/* Professional Information Section */}
-            <Text black semibold large24 marginT-30 marginB-10>
-                Professional Information
-            </Text>
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: "images",
+      allowsMultipleSelection: false,
+      // 0 = strongest compression / smallest file (per expo-image-picker)
+      quality: 0,
+      exif: false,
+      preferredAssetRepresentationMode:
+        ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+    });
 
-            {/* Service Class Picker */}
-            <PickerC
-                label="Select Services Class"
-                marginT-10
-                value={serviceClass}
-                onChange={(value) => setServiceClass(value as string)}
-                placeholder="Select a service"
-            >
-                <Picker.Item label="Home and Appliances" value="home_appliances" />
-                <Picker.Item label="Cleaning Services" value="cleaning" />
-                <Picker.Item label="Plumbing" value="plumbing" />
-                <Picker.Item label="Electrical" value="electrical" />
-            </PickerC>
+    if (result.canceled || !result.assets?.[0]?.uri) return;
 
-            <Input
-                label="Skills and Experties"
-                marginT-10
-                placeholder="Enter your skills"
-                value={skills}
-                onChangeText={setSkills}
+    const asset = result.assets[0];
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    setPickedImages((prev) => [
+      ...prev,
+      {
+        id,
+        uri: asset.uri,
+        docKey,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+      },
+    ]);
+  }, []);
+
+  const removePickedImage = useCallback((id: string) => {
+    setPickedImages((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  const params = useLocalSearchParams<{
+    role?: "provider";
+    email?: string | string[];
+    code?: string | string[];
+    firstName?: string | string[];
+    lastName?: string | string[];
+    phone?: string | string[];
+    address?: string | string[];
+    password?: string | string[];
+  }>();
+
+  const email = normalizeParam(params.email);
+  const firstName = normalizeParam(params.firstName)?.trim() ?? "";
+  const lastName = normalizeParam(params.lastName)?.trim() ?? "";
+  const password = normalizeParam(params.password) ?? "";
+  const phone = normalizeParam(params.phone)?.trim() ?? "";
+  const address = normalizeParam(params.address)?.trim() ?? "";
+
+  const handleContinue = async () => {
+    if (missingDocLabels.length > 0) {
+      Toaster({
+        visible: true,
+        preset: ToastPresets.FAILURE,
+        message: `Please upload all required documents. Missing: ${missingDocLabels.join(", ")}`,
+      });
+      return;
+    }
+
+    if (!firstName || !lastName || !email?.trim() || !password) {
+      Toaster({
+        visible: true,
+        preset: ToastPresets.FAILURE,
+        message: "Missing account details. Please go back and complete signup.",
+      });
+      return;
+    }
+
+    const latestByDoc = new Map<DocKey, PickedImage>();
+    for (const img of pickedImages) {
+      latestByDoc.set(img.docKey, img);
+    }
+
+    const files = docs.map((doc) => {
+      const pic = latestByDoc.get(doc.key)!;
+      return {
+        field: doc.key,
+        uri: pic.uri,
+        mimeType: pic.mimeType,
+        fileName: pic.fileName,
+      };
+    });
+
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await dispatch(
+        AuthActions.ContractorRegister({
+          first_name: firstName,
+          last_name: lastName,
+          email: email.trim(),
+          password,
+          mobile_number: phone,
+          address,
+          files,
+        })
+      ).unwrap();
+
+      Toaster({
+        visible: true,
+        preset: ToastPresets.SUCCESS,
+        message: "Registration successful, your account is waiting approval",
+      });
+      router.replace("/login");
+    } catch (err) {
+      if (typeof err === "string") {
+        Toaster({ visible: true, preset: ToastPresets.FAILURE, message: err });
+      }
+      // Other errors are surfaced by AxiosInterceptor
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Container
+      appBar={false}
+      contentBackgroundColor="#000"
+      containerProps={{
+        style: {
+          paddingTop: 16,
+          paddingHorizontal: "6%",
+          paddingBottom: "4%",
+        },
+      }}
+    >
+      <BackButton />
+
+      {/* Heading */}
+      <View marginB-24>
+        <Text white bold large24 style={{ color: "#fff" }}>
+          Required Documentation
+        </Text>
+        <Text
+          marginT-12
+          small
+          regular
+          style={{ color: "#818898", lineHeight: moderateScale(22) }}
+        >
+          Please upload the necessary documents to verify your contractor profile and
+          sign pending digital agreements.
+        </Text>
+      </View>
+
+      {/* Documents Grid */}
+      <View
+        row
+        gap-12
+        style={{ marginBottom: moderateScale(26), flexWrap: "wrap" }}
+      >
+        {docs.map((doc) => (
+          <TouchableOpacity
+            key={doc.key}
+            activeOpacity={0.8}
+            onPress={() => openPickerForDoc(doc.key)}
+            style={{
+              width: "47.5%",
+              borderRadius: moderateScale(18),
+              paddingVertical: moderateScale(18),
+              paddingHorizontal: moderateScale(10),
+              backgroundColor: "#151918",
+              borderWidth: 1.5,
+              borderStyle: "dashed",
+              borderColor: "#3A3A3A",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: moderateScale(108),
+            }}
+          >
+            <Icon
+              vector="Feather"
+              name="upload"
+              size={moderateScale(28)}
+              color={theme.color.primary}
             />
-
-            {/* Experience Input */}
-            <Input
-                label="Years of Experience"
-                marginT-10
-                placeholder="Enter years of experience"
-                value={experience}
-                onChangeText={setExperience}
-                keyboardType="number-pad"
-            />
-
-            {/* Certifications Section */}
-            <Text black semibold large24 marginT-35>
-                Certifications/Licenses
-            </Text>
-            <Text gray regular small marginT-8>
-                Upload a photo of either a driving license or certifications to verify your profile.
-            </Text>
-
-            {/* Upload Image Section */}
-            <TouchableOpacity
-                center
-                marginT-20
-                paddingV-30
-                br20
-                style={{
-                    borderWidth: 1.5,
-                    borderStyle: "dashed",
-                    borderColor: theme.color.accent,
-                    backgroundColor: theme.color.inputBg,
-                }}
+            <Text
+              marginT-12
+              semibold
+              small
+              style={{ color: "#fff", textAlign: "center" }}
             >
-                <Icon vector="Feather" name="upload-cloud" size={40} color={theme.color.accent} />
-                <Text accent semibold small marginT-12>
-                    Upload Image Front
-                </Text>
-                <Text gray regular extraSmall12 marginT-4>
-                    Supported formats PNG, GIF or JPG.
-                </Text>
-            </TouchableOpacity>
+              {doc.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-            <TouchableOpacity
-                center
-                marginT-20
-                paddingV-30
-                br20
-                style={{
-                    borderWidth: 1.5,
-                    borderStyle: "dashed",
-                    borderColor: theme.color.accent,
-                    backgroundColor: theme.color.inputBg,
-                }}
-            >
-                <Icon vector="Feather" name="upload-cloud" size={40} color={theme.color.accent} />
-                <Text accent semibold small marginT-12>
-                    Upload Image Back
-                </Text>
-                <Text gray regular extraSmall12 marginT-4>
-                    Supported formats PNG, GIF or JPG.
-                </Text>
-            </TouchableOpacity>
-
-            {/* Continue Button */}
-            <View marginT-40 marginB-30>
-                <CustomButton
-                    label="Continue"
-                    onPress={handleContinue}
-                />
+      {pickedImages.length > 0 && (
+        <FlatList
+          data={pickedImages}
+          keyExtractor={(item) => item.id}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.pickedListContent}
+          style={styles.pickedList}
+          renderItem={({ item }) => (
+            <View style={styles.thumbWrap}>
+              <Image source={{ uri: item.uri }} style={styles.thumbImage} />
+              <TouchableOpacity
+                style={styles.removeBtn}
+                onPress={() => removePickedImage(item.id)}
+                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+              >
+                <Icon vector="Feather" name="x" size={moderateScale(16)} color="#fff" />
+              </TouchableOpacity>
             </View>
-        </Container>
-    );
+          )}
+        />
+      )}
+
+      {/* Sign Up Button */}
+      <View marginT-10>
+        <CustomButton label="Sign Up" onPress={handleContinue} disabled={isSubmitting} />
+      </View>
+    </Container>
+  );
 };
+
+const thumbSize = moderateScale(88);
+
+const styles = StyleSheet.create({
+  pickedList: {
+    marginBottom: moderateScale(12),
+    maxHeight: thumbSize + moderateScale(8),
+  },
+  pickedListContent: {
+    gap: moderateScale(10),
+    paddingVertical: moderateScale(4),
+  },
+  thumbWrap: {
+    width: thumbSize,
+    height: thumbSize,
+    borderRadius: moderateScale(12),
+    overflow: "hidden",
+    backgroundColor: "#1E1E1E",
+  },
+  thumbImage: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
+  },
+  removeBtn: {
+    position: "absolute",
+    top: moderateScale(4),
+    right: moderateScale(4),
+    width: moderateScale(24),
+    height: moderateScale(24),
+    borderRadius: moderateScale(12),
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+});
 
 export default VerifyProvider;

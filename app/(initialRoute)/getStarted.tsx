@@ -57,7 +57,7 @@ const GetStarted = () => {
         animated: true,
       });
     } else {
-      router.push("/selectUser");
+      router.push("/login");
     }
   };
 
@@ -117,7 +117,7 @@ const GetStarted = () => {
         <TouchableOpacity
           paddingV-8
           paddingH-20
-          onPress={() => router.push("/selectUser")}
+          onPress={() => router.push("/login")}
         >
           <Text white medium extraSmall style={{ color: "#fff" }}>
             Skip

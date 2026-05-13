@@ -2,25 +2,40 @@ import BackButton from "@/components/BackButton";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Input from "@/components/Input";
+import { AuthActions } from "@/redux/actions/AuthActions";
+import { AppDispatch } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
 import { router } from "expo-router";
 import * as React from "react";
 import { useState } from "react";
 import { verticalScale } from "react-native-size-matters";
 import { Text, View } from "react-native-ui-lib";
+import { useDispatch } from "react-redux";
 
 const isValidEmail = (value: string) =>
   /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 
 const ForgotPassword = () => {
+  const dispatch = useDispatch<AppDispatch>();
   const [email, setEmail] = useState("");
 
-  const handleContinue = () => {
-    if (email) {
+  const handleContinue = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || !isValidEmail(trimmed)) return;
+
+    try {
+      const result = await dispatch(AuthActions.ForgotPassword({ email: trimmed })).unwrap();
+      // Success: navigate to OTP screen (no success toast)
       router.push({
         pathname: "/Otp",
-        params: { email, scrn: "forgotPassword" },
+        params: {
+          email: trimmed,
+          scrn: "forgotPassword",
+          code: (result as any)?.verify_code != null ? String((result as any).verify_code) : undefined,
+        },
       });
+    } catch {
+      // Error toast is shown by AxiosInterceptor using `error.messages`
     }
   };
 
@@ -59,7 +74,7 @@ const ForgotPassword = () => {
           regular
           style={{ color: "#818898" }}
         >
-          Lorem Ipsum is simply dummy text of the printing and typesetting industry.
+          Please enter your registered email address to reset your password.
         </Text>
       </View>
 
@@ -85,6 +100,7 @@ const ForgotPassword = () => {
           label="Send OTP"
           onPress={handleContinue}
           disabled={!email || !isValidEmail(email)}
+          backgroundColor={!email || !isValidEmail(email) ? "#6C6C6C" : theme.color.primary}
         />
       </View>
     </Container>

@@ -22,15 +22,16 @@ const SelectUser = () => {
         },
     ];
 
+    const canContinue = selectedRole !== null;
+
     const handleContinue = () => {
-        if (selectedRole) {
-            router.push({
-                pathname: "/login",
-                params: {
-                    role: selectedRole,
-                },
-            });
-        }
+        if (!canContinue) return;
+        router.push({
+            pathname: "/signup",
+            params: {
+                role: selectedRole as "customer" | "provider",
+            },
+        });
     };
 
     return (
@@ -62,7 +63,7 @@ const SelectUser = () => {
                     return (
                         <TouchableOpacity
                             key={role.id}
-                            onPress={() => setSelectedRole(role.id as any)}
+                            onPress={() => setSelectedRole(role.id as "customer" | "provider")}
                             activeOpacity={0.8}
                             row
                             centerV
@@ -110,7 +111,8 @@ const SelectUser = () => {
                 <CustomButton
                     label="Continue"
                     onPress={handleContinue}
-                    disabled={!selectedRole}
+                    disabled={!canContinue}
+                    backgroundColor={canContinue ? theme.color.primary : "#6C6C6C"}
                 />
             </View>
         </Container>

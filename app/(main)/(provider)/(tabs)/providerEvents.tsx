@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import * as React from "react";
 import Icon from "@/components/Icon";
 import { moderateScale } from "react-native-size-matters";
-import { Image, Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { Text, TouchableOpacity, View } from "react-native-ui-lib";
 
 const EVENT_HISTORY = [
     {
@@ -13,7 +13,6 @@ const EVENT_HISTORY = [
         location: "Millennium Park, Chicago, IL",
         dateRange: "Start Tomorrow: 4–6 hrs",
         status: "fully Staffed" as const,
-        image: "https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?q=80&w=2940&auto=format&fit=crop",
         statusColor: "#22C55E",
     },
     {
@@ -22,7 +21,6 @@ const EVENT_HISTORY = [
         location: "Millennium Park, Chicago, IL",
         dateRange: "Start Tomorrow: 4–6 hrs",
         status: "fully Staffed" as const,
-        image: "https://images.unsplash.com/photo-1511192336575-5a79af67a629?q=80&w=2930&auto=format&fit=crop",
         statusColor: "#22C55E",
     },
 ];
@@ -68,33 +66,30 @@ const ProviderEvents = () => {
                             router.push("/(main)/(provider)/providerEventDetail")
                         }
                     >
-                        <View style={{ position: "relative" }}>
-                            <Image
-                                source={{ uri: event.image }}
-                                style={{ width: "100%", height: moderateScale(180) }}
-                                resizeMode="cover"
-                            />
-                            <View
-                                style={{
-                                    position: "absolute",
-                                    top: moderateScale(12),
-                                    right: moderateScale(12),
-                                    paddingHorizontal: moderateScale(12),
-                                    paddingVertical: moderateScale(6),
-                                    borderRadius: moderateScale(20),
-                                    backgroundColor: event.statusColor,
-                                }}
-                            >
-                                <Text semibold extraSmall style={{ color: "#fff" }}>
-                                    {event.status}
-                                </Text>
-                            </View>
-                        </View>
-
                         <View padding-16>
-                            <Text bold medium numberOfLines={2} style={{ color: "#fff" }}>
-                                {event.title}
-                            </Text>
+                            <View row spread>
+                                <Text
+                                    bold
+                                    medium
+                                    numberOfLines={2}
+                                    style={{ color: "#fff", flex: 1, paddingRight: moderateScale(10) }}
+                                >
+                                    {event.title}
+                                </Text>
+                                <View
+                                    style={{
+                                        paddingHorizontal: moderateScale(10),
+                                        paddingVertical: moderateScale(4),
+                                        borderRadius: moderateScale(20),
+                                        backgroundColor: event.statusColor,
+                                        alignSelf: "flex-start",
+                                    }}
+                                >
+                                    <Text semibold extraSmall style={{ color: "#fff" }}>
+                                        {event.status}
+                                    </Text>
+                                </View>
+                            </View>
 
                             <View row centerV marginT-8>
                                 <Icon
@@ -113,22 +108,6 @@ const ProviderEvents = () => {
                                 <Text small regular style={{ color: "#818898", marginLeft: 6 }}>
                                     {event.dateRange}
                                 </Text>
-                            </View>
-
-                            <View marginT-16>
-                                <TouchableOpacity
-                                    style={{
-                                        backgroundColor: theme.color.primary,
-                                        borderRadius: moderateScale(14),
-                                        paddingVertical: 12,
-                                        alignItems: "center",
-                                    }}
-                                    onPress={() =>
-                                        router.push("/(main)/(provider)/providerEventDetail")
-                                    }
-                                >
-                                    <Text semibold style={{ color: "#fff" }}>View Details</Text>
-                                </TouchableOpacity>
                             </View>
                         </View>
                     </TouchableOpacity>

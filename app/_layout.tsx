@@ -8,7 +8,7 @@ import {
 } from "@/redux/actions/hooks/useOthers";
 import { useTheme } from "@/redux/actions/hooks/useTheme";
 import { store } from "@/redux/store";
-import { getDeviceInfo, SCREEN_WIDTH } from "@/utils/constants";
+import { SCREEN_WIDTH } from "@/utils/constants";
 import { theme } from "@/utils/designSystem";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -41,7 +41,7 @@ export default function RootLayout() {
 
 function Navigation() {
     const { toast, Toaster } = useToast();
-    const { logout } = useLogout();
+    const { logoutLocal } = useLogout();
     const { loading } = useLoading();
     const { loginModal, hideModal } = useLoginModal();
     const { effectiveTheme, init } = useTheme();
@@ -92,7 +92,7 @@ function Navigation() {
                 backgroundColor={"#fff"}
                 autoDismiss={2000}
                 swipeable
-                position="bottom"
+                position="top"
                 messageStyle={{
                     color: "#000",
                     fontSize: theme.fontSize.regular,
@@ -130,10 +130,7 @@ function Navigation() {
                             label="Sign In"
                             onPress={() => {
                                 hideModal();
-                                logout({
-                                    refreshToken: "",
-                                    deviceId: getDeviceInfo().deviceId,
-                                });
+                                logoutLocal();
                             }}
                         />
                         <CustomButton
@@ -146,10 +143,7 @@ function Navigation() {
                             color={theme.color.textColor}
                             onPress={() => {
                                 hideModal();
-                                logout({
-                                    refreshToken: "",
-                                    deviceId: getDeviceInfo().deviceId,
-                                });
+                                logoutLocal();
                             }}
                         />
                     </View>

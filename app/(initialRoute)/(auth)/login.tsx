@@ -2,22 +2,76 @@ import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
 import Input from "@/components/Input";
+import { AuthActions } from "@/redux/actions/AuthActions";
+import { useToast } from "@/redux/actions/hooks/useOthers";
+import { AppDispatch } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
-import { router, useLocalSearchParams } from "expo-router";
+import { router } from "expo-router";
 import * as React from "react";
 import { moderateScale, verticalScale } from "react-native-size-matters";
-import { Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { Text, ToastPresets, TouchableOpacity, View } from "react-native-ui-lib";
+import { useDispatch } from "react-redux";
 
 interface LoginProps {}
 
 const Login = (props: LoginProps) => {
+  const dispatch = useDispatch<AppDispatch>();
+  const { Toaster } = useToast();
   const [credentials, setCredentials] = React.useState({
-    email: __DEV__ ? "johnsmith@yopmail.com" : "",
+    email: __DEV__ ? "john_user@gmail.com" : "",
     password: __DEV__ ? "12345678" : "",
     rememberMe: true,
   });
   const [showPassword, setShowPassword] = React.useState(false);
-  const { role } = useLocalSearchParams();
+  const [didSubmit, setDidSubmit] = React.useState(false);
+
+  const email = credentials.email.trim();
+  const password = credentials.password;
+  const isEmailValid = /^\S+@\S+\.\S+$/.test(email);
+  const isFormValid = email.length > 0 && password.length > 0 && isEmailValid;
+
+  const showValidationToast = (message: string) => {
+    Toaster({
+      visible: true,
+      message,
+      preset: ToastPresets.FAILURE,
+    });
+  };
+
+  const handleSignIn = async () => {
+    setDidSubmit(true);
+
+    if (email.length === 0) return showValidationToast("Email is required");
+    if (!isEmailValid) return showValidationToast("Please enter a valid email");
+    if (password.length === 0) return showValidationToast("Password is required");
+
+    try {
+      const result = await dispatch(
+        AuthActions.Login({
+          email,
+          password,
+          rememberMe: credentials.rememberMe,
+        })
+      ).unwrap();
+
+      const verifyCode = (result as any)?.verify_code;
+      const roleParam = result.user?.role === "contractor" ? "provider" : "customer";
+      router.replace({
+        pathname: "/Otp",
+        params: {
+          scrn: "login",
+          role: roleParam,
+          email,
+          code: verifyCode != null ? String(verifyCode) : undefined,
+        },
+      });
+    } catch (err) {
+      if (typeof err === "string") {
+        showValidationToast(err);
+      }
+      // Wrong credentials / server errors: global toast from Axios interceptor
+    }
+  };
 
   const inputFieldStyle = {
     backgroundColor: "#1E1E1E",
@@ -52,7 +106,7 @@ const Login = (props: LoginProps) => {
           regular
           style={{ color: "#818898" }}
         >
-          Lorem Ipsum is simply dummy text of the printing and typesetting industry.
+          Sign in to manage your events, bookings, and profile in one place.
         </Text>
       </View>
 
@@ -72,6 +126,11 @@ const Login = (props: LoginProps) => {
         fieldStyle={inputFieldStyle}
         placeholderTextColor="#818898"
         style={{ color: "#fff" }}
+        onBlur={() => {
+          if (!didSubmit) return;
+          if (email.length === 0) showValidationToast("Email is required");
+          else if (!isEmailValid) showValidationToast("Please enter a valid email");
+        }}
       />
 
       <Input
@@ -87,6 +146,10 @@ const Login = (props: LoginProps) => {
         fieldStyle={inputFieldStyle}
         placeholderTextColor="#818898"
         style={{ color: "#fff" }}
+        onBlur={() => {
+          if (!didSubmit) return;
+          if (password.length === 0) showValidationToast("Password is required");
+        }}
         trailingAccessory={
           <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
             <Icon
@@ -114,15 +177,9 @@ const Login = (props: LoginProps) => {
       {/* Sign In Button */}
       <CustomButton
         label="Sign In"
-        onPress={() =>
-          router.push({
-            pathname: "/Otp",
-            params: {
-              role,
-              scrn: "login",
-            },
-          })
-        }
+        onPress={handleSignIn}
+        disabled={!isFormValid}
+        backgroundColor={isFormValid ? theme.color.primary : "#6C6C6C"}
       />
 
       {/* Divider
@@ -185,7 +242,7 @@ const Login = (props: LoginProps) => {
 
       {/* Sign Up Link */}
       <TouchableOpacity
-        onPress={() => router.navigate(`/signup?role=${role}`)}
+        onPress={() => router.push("/selectUser")}
         style={{ alignSelf: "center", marginTop: 50 }}
       >
         <View row center>

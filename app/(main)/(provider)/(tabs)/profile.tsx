@@ -2,13 +2,26 @@ import AskDialog from "@/components/AskDialog";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
+import { AuthActions } from "@/redux/actions/AuthActions";
+import { LogoutUser } from "@/redux/slices/AuthSlice";
+import { AppDispatch, RootState } from "@/redux/store";
+import { CONTRACTOR_PROFILE_AVATAR_URL } from "@/utils/constants";
 import { theme } from "@/utils/designSystem";
 import { router } from "expo-router";
 import * as React from "react";
 import { moderateScale } from "react-native-size-matters";
 import { Image, Switch, Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { useDispatch, useSelector } from "react-redux";
 
 const Profile = () => {
+    const dispatch = useDispatch<AppDispatch>();
+    const user = useSelector((state: RootState) => state.auth.user);
+    const displayFirstName =
+        user?.firstName?.trim() ||
+        user?.fullName?.trim()?.split(/\s+/)?.[0]?.trim() ||
+        "Guest";
+    const emailDisplay = user?.email?.trim() || "";
+    const avatarUri = user?.avatarUrl?.trim() || CONTRACTOR_PROFILE_AVATAR_URL;
     const [pushEnabled, setPushEnabled] = React.useState(true);
     const [askLogoutVisible, setAskLogoutVisible] = React.useState(false);
     const [askDeleteVisible, setAskDeleteVisible] = React.useState(false);
@@ -68,19 +81,20 @@ const Profile = () => {
             {/* Profile Header */}
             <View marginT-10>
                 <Image
-                    source={{ uri: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?q=80&w=3000&auto=format&fit=crop" }}
+                    source={{ uri: avatarUri }}
                     style={{
                         width: moderateScale(72),
                         height: moderateScale(72),
                         borderRadius: moderateScale(36),
                     }}
+                    resizeMode="cover"
                 />
 
                 <Text marginT-16 bold large28 style={{ color: "#fff" }}>
-                    Jonathan
+                    {displayFirstName}
                 </Text>
                 <Text marginT-6 regular regularSize style={{ color: "#818898" }}>
-                    jonathan.curtis@example.com
+                    {emailDisplay || "—"}
                 </Text>
 
                 <TouchableOpacity
@@ -204,6 +218,8 @@ const Profile = () => {
                 onNo={() => setAskLogoutVisible(false)}
                 onYes={() => {
                     setAskLogoutVisible(false);
+                    dispatch(LogoutUser());
+                    router.dismissAll();
                     router.replace("/login");
                 }}
             />
@@ -221,9 +237,15 @@ const Profile = () => {
                     size: moderateScale(30),
                 }}
                 onNo={() => setAskDeleteVisible(false)}
-                onYes={() => {
+                onYes={async () => {
                     setAskDeleteVisible(false);
-                    // TODO: hook up delete account API/action.
+                    try {
+                        await dispatch(AuthActions.DeleteAccount()).unwrap();
+                        dispatch(LogoutUser());
+                        router.replace("/getStarted");
+                    } catch {
+                        // error toast from AxiosInterceptor
+                    }
                 }}
             />
         </Container>

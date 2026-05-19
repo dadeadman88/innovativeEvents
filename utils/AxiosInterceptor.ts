@@ -39,11 +39,22 @@ function isPublicAuthRequestUrl(url: string | undefined): boolean {
   return publicPaths.some((p) => url === p || url.endsWith(`/${p}`));
 }
 
+const EVENT_LIST_PATH_SUFFIXES = [eventEndpoints.all, eventEndpoints.contractorAll] as const;
+
+function resolveRequestUrl(url: string | undefined, baseURL?: string): string {
+  const raw = (url ?? "").trim();
+  if (!raw) return (baseURL ?? "").trim();
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  const base = (baseURL ?? "").replace(/\/+$/, "");
+  const path = raw.replace(/^\//, "");
+  return base ? `${base}/${path}` : raw;
+}
+
 /** 401 on event list should not force app-wide logout (treat as recoverable; wrong params or API quirks). */
-function isEventAllListRequestUrl(url: string | undefined): boolean {
-  if (!url) return false;
-  const p = eventEndpoints.all;
-  return url === p || url.endsWith(`/${p}`) || url.includes(`${p}`);
+function isEventListRequestUrl(url: string | undefined, baseURL?: string): boolean {
+  const full = resolveRequestUrl(url, baseURL);
+  if (!full) return false;
+  return EVENT_LIST_PATH_SUFFIXES.some((suffix) => full.includes(suffix));
 }
 
 // Lazy store getter to avoid circular dependency
@@ -93,18 +104,19 @@ client.interceptors.response.use(
       const status = error.response?.status;
       console.log("Axios error response", error.config?.headers, status, error.config?.url);
       if (status === 401) {
-        if (
-          isPublicAuthRequestUrl(error.config?.url) ||
-          isEventAllListRequestUrl(error.config?.url)
-        ) {
-          const url = error.config?.url;
+        const requestUrl = error.config?.url;
+        const requestBase = error.config?.baseURL;
+        const isEventList = isEventListRequestUrl(requestUrl, requestBase);
+
+        if (isPublicAuthRequestUrl(requestUrl) || isEventList) {
           const message = getAxiosErrorMessage(error);
           const isCheckEmail =
-            url === authEndpoints.checkEmail || url?.endsWith(`/${authEndpoints.checkEmail}`);
+            requestUrl === authEndpoints.checkEmail ||
+            requestUrl?.endsWith(`/${authEndpoints.checkEmail}`);
           const treatAsSuccess =
             isCheckEmail && message.toLowerCase().includes("does not exist");
 
-          if (!treatAsSuccess) {
+          if (!treatAsSuccess && !isEventList) {
             getStore().dispatch(
               showHideToast({
                 visible: true,

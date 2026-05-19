@@ -162,38 +162,55 @@ export const AuthActions = {
         password: string;
         mobile_number: string;
         address: string;
-        files: {
-          field: ContractorRegisterFileField;
-          uri: string;
-          mimeType?: string | null;
-          fileName?: string | null;
-        }[];
+        // TODO: restore when enabling multipart document upload alongside payload.files
+        // files: {
+        //   field: ContractorRegisterFileField;
+        //   uri: string;
+        //   mimeType?: string | null;
+        //   fileName?: string | null;
+        // }[];
       },
       thunkAPI
     ) => {
       thunkAPI.dispatch(setLoading(true));
 
-      const formData = new FormData();
-      formData.append("role", "contractor");
-      formData.append("first_name", payload.first_name);
-      formData.append("last_name", payload.last_name);
-      formData.append("email", payload.email.trim());
-      formData.append("password", payload.password);
-      formData.append("mobile_number", payload.mobile_number);
-      formData.append("address", payload.address);
-      formData.append("device_type", Platform.OS);
-      formData.append("device_token", generateDeviceToken());
-      formData.append("udid", generateDeviceToken());
+      const deviceToken = generateDeviceToken();
+      const udid = generateDeviceToken();
 
-      for (const f of payload.files) {
-        formData.append(f.field, {
-          uri: f.uri,
-          type: f.mimeType ?? "image/jpeg",
-          name: f.fileName ?? `${f.field}.jpg`,
-        } as any);
-      }
+      // TODO(multipart): contractor register with document images — restore FormData + file appends.
+      // const formData = new FormData();
+      // formData.append("role", "contractor");
+      // formData.append("first_name", payload.first_name);
+      // formData.append("last_name", payload.last_name);
+      // formData.append("email", payload.email.trim());
+      // formData.append("password", payload.password);
+      // formData.append("mobile_number", payload.mobile_number);
+      // formData.append("address", payload.address);
+      // formData.append("device_type", Platform.OS);
+      // formData.append("device_token", deviceToken);
+      // formData.append("udid", udid);
+      // for (const f of payload.files) {
+      //   formData.append(f.field, {
+      //     uri: f.uri,
+      //     type: f.mimeType ?? "image/jpeg",
+      //     name: f.fileName ?? `${f.field}.jpg`,
+      //   } as any);
+      // }
+      // const { data } = await client.post<unknown>(authEndpoints.contractorRegister, formData);
 
-      const { data } = await client.post<unknown>(authEndpoints.contractorRegister, formData);
+      const body = {
+        role: "contractor" as const,
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        email: payload.email.trim(),
+        password: payload.password,
+        mobile_number: payload.mobile_number,
+        address: payload.address,
+        device_type: Platform.OS,
+        device_token: deviceToken,
+        udid,
+      };
+      const { data } = await client.post<unknown>(authEndpoints.contractorRegister, body);
       return data;
     }
   ),

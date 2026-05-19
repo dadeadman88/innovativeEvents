@@ -17,6 +17,7 @@ export const authEndpoints = {
 export const eventEndpoints = {
   add: "event/add",
   all: "event/all",
+  contractorAll: "event/contractor/all",
 } as const;
 
 

@@ -141,6 +141,29 @@ export const EventActions = {
     }
   ),
 
+  /** Provider My Events list: GET event/contractor/all */
+  FetchContractorEvents: createAsyncThunk("event/fetchContractor", async () => {
+    const { data } = await client.get<unknown>(eventEndpoints.contractorAll);
+    const rows = extractEventsArray(data);
+    return rows.map(mapRowToListItem);
+  }),
+
+  /** Provider active jobs calendar: GET event/contractor/all?date=… */
+  FetchContractorEventsByDate: createAsyncThunk(
+    "event/fetchContractorByDate",
+    async (args: FetchEventsByDateParams, thunkAPI) => {
+      const d = args.date?.trim();
+      if (!d) {
+        return thunkAPI.rejectWithValue("Missing date");
+      }
+      const { data } = await client.get<unknown>(eventEndpoints.contractorAll, {
+        params: { date: d },
+      });
+      const rows = extractEventsArray(data);
+      return rows.map(mapRowToListItem);
+    }
+  ),
+
   CreateEvent: createAsyncThunk(
     "event/create",
     async (payload: CreateEventPayload, thunkAPI) => {

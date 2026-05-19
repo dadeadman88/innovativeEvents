@@ -9,7 +9,7 @@ import { theme } from "@/utils/designSystem";
 import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { FlatList, Image, StyleSheet } from "react-native";
 import { moderateScale } from "react-native-size-matters";
 import { Text, ToastPresets, TouchableOpacity, View } from "react-native-ui-lib";
@@ -24,8 +24,19 @@ const docs = [
 
 type DocKey = (typeof docs)[number]["key"];
 
+const DOC_KEY_ORDER = new Map<DocKey, number>(docs.map((d, i) => [d.key, i]));
+
+function sortPickedImagesByDocOrder(images: PickedImage[]): PickedImage[] {
+  return [...images].sort(
+    (a, b) => (DOC_KEY_ORDER.get(a.docKey) ?? 0) - (DOC_KEY_ORDER.get(b.docKey) ?? 0)
+  );
+}
+
+function labelForDocKey(key: DocKey): string {
+  return docs.find((d) => d.key === key)?.label ?? key;
+}
+
 type PickedImage = {
-  id: string;
   uri: string;
   docKey: DocKey;
   mimeType?: string | null;
@@ -42,12 +53,6 @@ const VerifyProvider = () => {
   const { Toaster } = useToast();
   const [pickedImages, setPickedImages] = useState<PickedImage[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const missingDocLabels = useMemo(() => {
-    return docs
-      .filter((doc) => !pickedImages.some((p) => p.docKey === doc.key))
-      .map((d) => d.label);
-  }, [pickedImages]);
 
   const openPickerForDoc = useCallback(async (docKey: DocKey) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -66,21 +71,21 @@ const VerifyProvider = () => {
     if (result.canceled || !result.assets?.[0]?.uri) return;
 
     const asset = result.assets[0];
-    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-    setPickedImages((prev) => [
-      ...prev,
-      {
-        id,
-        uri: asset.uri,
-        docKey,
-        mimeType: asset.mimeType,
-        fileName: asset.fileName,
-      },
-    ]);
+    setPickedImages((prev) =>
+      sortPickedImagesByDocOrder([
+        ...prev.filter((p) => p.docKey !== docKey),
+        {
+          uri: asset.uri,
+          docKey,
+          mimeType: asset.mimeType,
+          fileName: asset.fileName,
+        },
+      ])
+    );
   }, []);
 
-  const removePickedImage = useCallback((id: string) => {
-    setPickedImages((prev) => prev.filter((p) => p.id !== id));
+  const removePickedImage = useCallback((docKey: DocKey) => {
+    setPickedImages((prev) => prev.filter((p) => p.docKey !== docKey));
   }, []);
 
   const params = useLocalSearchParams<{
@@ -102,11 +107,12 @@ const VerifyProvider = () => {
   const address = normalizeParam(params.address)?.trim() ?? "";
 
   const handleContinue = async () => {
-    if (missingDocLabels.length > 0) {
+    if (pickedImages.length === 0) {
       Toaster({
         visible: true,
         preset: ToastPresets.FAILURE,
-        message: `Please upload all required documents. Missing: ${missingDocLabels.join(", ")}`,
+        message:
+          "Please upload at least one document (driver's license, passport, sampling licensure, or Social Security card).",
       });
       return;
     }
@@ -120,20 +126,17 @@ const VerifyProvider = () => {
       return;
     }
 
-    const latestByDoc = new Map<DocKey, PickedImage>();
-    for (const img of pickedImages) {
-      latestByDoc.set(img.docKey, img);
-    }
-
-    const files = docs.map((doc) => {
-      const pic = latestByDoc.get(doc.key)!;
-      return {
-        field: doc.key,
-        uri: pic.uri,
-        mimeType: pic.mimeType,
-        fileName: pic.fileName,
-      };
-    });
+    // TODO: restore when API accepts multipart contractor documents — build `files` and pass to ContractorRegister.
+    // const latestByDoc = new Map<DocKey, PickedImage>();
+    // for (const img of pickedImages) {
+    //   latestByDoc.set(img.docKey, img);
+    // }
+    // const files = Array.from(latestByDoc.values()).map((pic) => ({
+    //   field: pic.docKey,
+    //   uri: pic.uri,
+    //   mimeType: pic.mimeType,
+    //   fileName: pic.fileName,
+    // }));
 
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -146,7 +149,6 @@ const VerifyProvider = () => {
           password,
           mobile_number: phone,
           address,
-          files,
         })
       ).unwrap();
 
@@ -202,7 +204,9 @@ const VerifyProvider = () => {
         gap-12
         style={{ marginBottom: moderateScale(26), flexWrap: "wrap" }}
       >
-        {docs.map((doc) => (
+        {docs.map((doc) => {
+          const hasPickedForDoc = pickedImages.some((p) => p.docKey === doc.key);
+          return (
           <TouchableOpacity
             key={doc.key}
             activeOpacity={0.8}
@@ -213,9 +217,9 @@ const VerifyProvider = () => {
               paddingVertical: moderateScale(18),
               paddingHorizontal: moderateScale(10),
               backgroundColor: "#151918",
-              borderWidth: 1.5,
-              borderStyle: "dashed",
-              borderColor: "#3A3A3A",
+              borderWidth: hasPickedForDoc ? 2 : 1.5,
+              borderStyle: hasPickedForDoc ? "solid" : "dashed",
+              borderColor: hasPickedForDoc ? theme.color.primary : "#3A3A3A",
               alignItems: "center",
               justifyContent: "center",
               minHeight: moderateScale(108),
@@ -236,13 +240,14 @@ const VerifyProvider = () => {
               {doc.label}
             </Text>
           </TouchableOpacity>
-        ))}
+          );
+        })}
       </View>
 
       {pickedImages.length > 0 && (
         <FlatList
           data={pickedImages}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => item.docKey}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.pickedListContent}
@@ -250,12 +255,21 @@ const VerifyProvider = () => {
           renderItem={({ item }) => (
             <View style={styles.thumbWrap}>
               <Image source={{ uri: item.uri }} style={styles.thumbImage} />
+              <View style={styles.thumbLabelOverlay}>
+                <Text
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  style={styles.thumbLabelText}
+                >
+                  {labelForDocKey(item.docKey)}
+                </Text>
+              </View>
               <TouchableOpacity
                 style={styles.removeBtn}
-                onPress={() => removePickedImage(item.id)}
-                hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                onPress={() => removePickedImage(item.docKey)}
+                hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
               >
-                <Icon vector="Feather" name="x" size={moderateScale(16)} color="#fff" />
+                <Icon vector="Feather" name="x" size={moderateScale(22)} color="#fff" />
               </TouchableOpacity>
             </View>
           )}
@@ -270,36 +284,50 @@ const VerifyProvider = () => {
   );
 };
 
-const thumbSize = moderateScale(88);
+const thumbSize = moderateScale(176);
 
 const styles = StyleSheet.create({
   pickedList: {
     marginBottom: moderateScale(12),
-    maxHeight: thumbSize + moderateScale(8),
+    maxHeight: thumbSize + moderateScale(10),
   },
   pickedListContent: {
-    gap: moderateScale(10),
+    gap: moderateScale(14),
     paddingVertical: moderateScale(4),
   },
   thumbWrap: {
     width: thumbSize,
     height: thumbSize,
-    borderRadius: moderateScale(12),
+    borderRadius: moderateScale(16),
     overflow: "hidden",
     backgroundColor: "#1E1E1E",
   },
   thumbImage: {
     width: "100%",
     height: "100%",
-    resizeMode: "cover",
+    resizeMode: "contain",
+  },
+  thumbLabelOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    paddingVertical: moderateScale(5),
+    paddingHorizontal: moderateScale(6),
+  },
+  thumbLabelText: {
+    fontSize: 12,
+    color: "#fff",
+    textAlign: "center",
   },
   removeBtn: {
     position: "absolute",
-    top: moderateScale(4),
-    right: moderateScale(4),
-    width: moderateScale(24),
-    height: moderateScale(24),
-    borderRadius: moderateScale(12),
+    top: moderateScale(6),
+    right: moderateScale(6),
+    width: moderateScale(32),
+    height: moderateScale(32),
+    borderRadius: moderateScale(16),
     backgroundColor: "rgba(0,0,0,0.65)",
     alignItems: "center",
     justifyContent: "center",

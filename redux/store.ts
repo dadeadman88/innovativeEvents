@@ -1,6 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { setStoreReference } from '../utils/AxiosInterceptor';
 import AuthReducer from './slices/AuthSlice';
+import EventReducer from './slices/EventSlice';
 import OtherReducer from './slices/OtherSlice';
 import ThemeReducer from './slices/ThemeSlice';
 
@@ -9,6 +10,7 @@ export const store = configureStore({
         other: OtherReducer,
         auth: AuthReducer,
         theme: ThemeReducer,
+        events: EventReducer,
     },
 });
 

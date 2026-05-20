@@ -21,7 +21,7 @@
 		13B07F961A680F5B00A75B9A /* InnovativeEvents.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = InnovativeEvents.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = InnovativeEvents/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = InnovativeEvents/Info.plist; sourceTree = "<group>"; };
-		3D31890A091DF34B38BA29FD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = InnovativeEvents/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		3D31890A091DF34B38BA29FD /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = InnovativeEvents/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		66B1177A44BC936DA4525AD7 /* libPods-InnovativeEvents.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-InnovativeEvents.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		9B694B59ECE94D2ABD347FCB /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-InnovativeEvents/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = InnovativeEvents/SplashScreen.storyboard; sourceTree = "<group>"; };
@@ -103,7 +103,6 @@
 				0FA5B9503D65C6197E8A6144 /* Pods-InnovativeEvents.debug.xcconfig */,
 				AF360F2001DC8AAB38EB44CD /* Pods-InnovativeEvents.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -367,6 +366,8 @@
 					"FB_SONARKIT_ENABLED=1",
 				);
 				INFOPLIST_FILE = InnovativeEvents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Innovative Events";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -380,7 +381,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.innovativeevents.app;
-				PRODUCT_NAME = "InnovativeEvents";
+				PRODUCT_NAME = InnovativeEvents;
 				SWIFT_OBJC_BRIDGING_HEADER = "InnovativeEvents/InnovativeEvents-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -398,6 +399,8 @@
 				CODE_SIGN_ENTITLEMENTS = InnovativeEvents/InnovativeEvents.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
 				INFOPLIST_FILE = InnovativeEvents/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Innovative Events";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -411,7 +414,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.innovativeevents.app;
-				PRODUCT_NAME = "InnovativeEvents";
+				PRODUCT_NAME = InnovativeEvents;
 				SWIFT_OBJC_BRIDGING_HEADER = "InnovativeEvents/InnovativeEvents-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

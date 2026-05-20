@@ -18,6 +18,8 @@ export const eventEndpoints = {
   add: "event/add",
   all: "event/all",
   contractorAll: "event/contractor/all",
+  contractorAssignedAll: "event/contractor/assigned/all",
+  contractorResponse: "event/contractor/response",
 } as const;
 
 

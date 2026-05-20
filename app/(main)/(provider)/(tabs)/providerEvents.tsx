@@ -3,6 +3,7 @@ import Icon from "@/components/Icon";
 import { CustomerEventListItem, EventActions } from "@/redux/actions/EventActions";
 import { AppDispatch } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
+import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import * as React from "react";
 import { ActivityIndicator } from "react-native";
@@ -129,9 +130,15 @@ const ProviderEvents = () => {
         [dispatch]
     );
 
-    React.useEffect(() => {
-        loadEvents();
-    }, [loadEvents]);
+    // Refresh the list every time this tab gains focus (initial mount, tab
+    // switches back, returning from the event detail screen). Mirrors the
+    // home screen's behavior so newly claimed/applied jobs show up here
+    // without needing a manual pull-to-refresh.
+    useFocusEffect(
+        React.useCallback(() => {
+            loadEvents();
+        }, [loadEvents])
+    );
 
     const onRefresh = React.useCallback(() => {
         loadEvents({ refresh: true });
@@ -189,9 +196,7 @@ const ProviderEvents = () => {
                             onPress={() =>
                                 router.push({
                                     pathname: "/(main)/(provider)/providerEventDetail",
-                                    params: {
-                                        event: encodeURIComponent(JSON.stringify(event)),
-                                    },
+                                    params: { eventId: event.id },
                                 })
                             }
                         >

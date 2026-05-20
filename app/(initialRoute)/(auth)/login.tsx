@@ -18,8 +18,8 @@ const Login = (props: LoginProps) => {
   const dispatch = useDispatch<AppDispatch>();
   const { Toaster } = useToast();
   const [credentials, setCredentials] = React.useState({
-    email: __DEV__ ? "john_user@gmail.com" : "",
-    password: __DEV__ ? "12345678" : "",
+    email: __DEV__ ? "zaidyshah88@gmail.com" : "",
+    password: __DEV__ ? "1234567890" : "",
     rememberMe: true,
   });
   const [showPassword, setShowPassword] = React.useState(false);

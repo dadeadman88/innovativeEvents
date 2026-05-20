@@ -4,6 +4,7 @@ import { CustomerEventListItem, EventActions } from "@/redux/actions/EventAction
 import { AppDispatch, RootState } from "@/redux/store";
 import { CONTRACTOR_PROFILE_AVATAR_URL } from "@/utils/constants";
 import { theme } from "@/utils/designSystem";
+import { useFocusEffect } from "@react-navigation/native";
 import { router } from "expo-router";
 import * as React from "react";
 import { ActivityIndicator, ScrollView } from "react-native";
@@ -150,6 +151,20 @@ const Home = () => {
     const [activeEvents, setActiveEvents] = React.useState<CustomerEventListItem[]>([]);
     const [loadingActive, setLoadingActive] = React.useState(false);
 
+    /**
+     * Bumped every time this tab screen regains focus (e.g. after returning
+     * from the event detail screen). The two fetch effects below include this
+     * value in their dependency arrays so they re-run and pull fresh data,
+     * which lets newly claimed jobs move between the Available / Active tabs
+     * the next time the user opens an event.
+     */
+    const [refreshKey, setRefreshKey] = React.useState(0);
+    useFocusEffect(
+        React.useCallback(() => {
+            setRefreshKey((k) => k + 1);
+        }, [])
+    );
+
     React.useEffect(() => {
         if (activeTab !== "available") return;
 
@@ -176,7 +191,7 @@ const Home = () => {
         return () => {
             cancelled = true;
         };
-    }, [dispatch, selectedDate, activeTab]);
+    }, [dispatch, selectedDate, activeTab, refreshKey]);
 
     React.useEffect(() => {
         if (activeTab !== "active") return;
@@ -207,7 +222,7 @@ const Home = () => {
         return () => {
             cancelled = true;
         };
-    }, [dispatch, selectedDate, activeTab]);
+    }, [dispatch, selectedDate, activeTab, refreshKey]);
 
     const timelineEvents = activeTab === "available" ? availableEvents : activeEvents;
 
@@ -479,9 +494,7 @@ const Home = () => {
                                                 router.push({
                                                     pathname: "/(main)/(provider)/providerEventDetail",
                                                     params: {
-                                                        event: encodeURIComponent(
-                                                            JSON.stringify(apiEvent)
-                                                        ),
+                                                        eventId: apiEvent?.id ?? evt.id,
                                                     },
                                                 })
                                             }

@@ -39,7 +39,11 @@ function isPublicAuthRequestUrl(url: string | undefined): boolean {
   return publicPaths.some((p) => url === p || url.endsWith(`/${p}`));
 }
 
-const EVENT_LIST_PATH_SUFFIXES = [eventEndpoints.all, eventEndpoints.contractorAll] as const;
+const EVENT_LIST_PATH_SUFFIXES = [
+  eventEndpoints.all,
+  eventEndpoints.contractorAll,
+  eventEndpoints.contractorAssignedAll,
+] as const;
 
 function resolveRequestUrl(url: string | undefined, baseURL?: string): string {
   const raw = (url ?? "").trim();

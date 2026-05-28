@@ -4,9 +4,11 @@ import Container from "@/components/Container";
 import Icon from "@/components/Icon";
 import { CustomerEventListItem, EventActions } from "@/redux/actions/EventActions";
 import { useToast } from "@/redux/actions/hooks/useOthers";
+import { startCheckIn } from "@/redux/slices/EventSlice";
 import { AppDispatch, RootState } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
 import { router, useLocalSearchParams } from "expo-router";
+import * as Location from "expo-location";
 import * as React from "react";
 import { moderateScale } from "react-native-size-matters";
 import { Image, Text, ToastPresets, View } from "react-native-ui-lib";
@@ -90,6 +92,7 @@ const ProviderEventDetail = () => {
   const userId = useSelector((s: RootState) => s.auth.user?.id);
   const [claiming, setClaiming] = React.useState(false);
   const [claimed, setClaimed] = React.useState(false);
+  const [checkingIn, setCheckingIn] = React.useState(false);
 
   const handleClaimShift = React.useCallback(async () => {
     if (!event?.id || claiming) return;
@@ -109,6 +112,98 @@ const ProviderEventDetail = () => {
       setClaiming(false);
     }
   }, [dispatch, event?.id, claiming, Toaster]);
+
+  /**
+   * Check the contractor in for the job:
+   *   1. Request foreground location permission and read the device's
+   *      current coordinates (proof-of-presence at the job site).
+   *   2. POST event/checkin/add  body: { event_id, latitude, longitude }.
+   *   3. On success, lock in the session-timer start time and navigate to
+   *      the StartJob screen forwarding the event id so StartJob can pull
+   *      the same event object out of the redux events slice.
+   *   4. If the API rejects (typically because the contractor is already
+   *      checked in), still navigate to StartJob — the session UI should
+   *      still open. See the catch block for details.
+   *
+   * Location failures (permission denied, GPS off, hardware error) abort
+   * the check-in with a clear toast — we don't fall through to a coord-less
+   * POST because that would defeat the geofencing intent.
+   */
+  const handleCheckIn = React.useCallback(async () => {
+    if (!event?.id || checkingIn) return;
+    setCheckingIn(true);
+    const eventId = event.id;
+
+    // Step 1: get a device location fix BEFORE hitting the API. If this
+    // fails we never call the backend.
+    let coords: { latitude: number; longitude: number };
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        Toaster({
+          visible: true,
+          message: "Location permission is required to check in.",
+          preset: ToastPresets.FAILURE,
+        });
+        setCheckingIn(false);
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      coords = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      };
+    } catch {
+      Toaster({
+        visible: true,
+        message: "Couldn't get your location. Make sure GPS is on and try again.",
+        preset: ToastPresets.FAILURE,
+      });
+      setCheckingIn(false);
+      return;
+    }
+
+    // Step 2: API call with the coords attached.
+    try {
+      await dispatch(
+        EventActions.ContractorCheckin({
+          eventId,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+        })
+      ).unwrap();
+      // Lock in the session-timer start time on the FIRST successful
+      // check-in for this event. The reducer is a no-op on subsequent
+      // calls, so re-checking-in keeps the existing timer running.
+      dispatch(startCheckIn({ eventId }));
+      router.push({
+        pathname: "/(main)/(provider)/StartJob",
+        params: { eventId },
+      });
+    } catch {
+      // The check-in endpoint is whitelisted in the axios interceptor so
+      // it neither shows the default failure toast nor force-logs-out on
+      // 401. An error here means the contractor is already checked in for
+      // this event — surface that as info and continue to the StartJob
+      // screen so the in-progress session UI still opens. `startCheckIn`
+      // is idempotent: if a timer is already running it's preserved, and
+      // if not it seeds one to "now" so StartJob has something to display.
+      Toaster({
+        visible: true,
+        message: "You have already checked in.",
+        preset: ToastPresets.SUCCESS,
+      });
+      dispatch(startCheckIn({ eventId }));
+      router.push({
+        pathname: "/(main)/(provider)/StartJob",
+        params: { eventId },
+      });
+    } finally {
+      setCheckingIn(false);
+    }
+  }, [dispatch, event?.id, checkingIn, Toaster]);
 
   /**
    * Find the current user's row inside the event's `assigned_list` and decide
@@ -169,6 +264,29 @@ const ProviderEventDetail = () => {
   const locationSubtitle = address.includes(",")
     ? address.slice(address.indexOf(",") + 1).trim()
     : "";
+
+  /**
+   * Build the "Hosted by" card content. We only render the card when there
+   * is at least a name to show — otherwise it's just an empty shell.
+   * `subtitle` is "Title at Company" with a graceful join when one side is
+   * missing (e.g. just the company, or just the title).
+   */
+  const organizerName = event?.organizerName?.trim() || "";
+  const organizerTitle = event?.organizerTitle?.trim() || "";
+  const organizerCompany = event?.organizerCompany?.trim() || "";
+  const organizerSubtitle = (() => {
+    if (organizerTitle && organizerCompany) return `${organizerTitle} at ${organizerCompany}`;
+    return organizerTitle || organizerCompany || "";
+  })();
+  const organizerInitials = organizerName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+  const organizerEmail = event?.contactEmail?.trim() || "";
+  const organizerPhone = event?.contactPhone?.trim() || "";
+  const showOrganizerCard = !!organizerName;
 
   return (
     <Container
@@ -250,6 +368,64 @@ const ProviderEventDetail = () => {
             </View>
           </View>
         </View>
+
+        {/* Hosted by — customer who created the event */}
+        {showOrganizerCard && (
+          <View marginT-18>
+            <Text bold large20 style={{ color: "#fff" }}>
+              Hosted By
+            </Text>
+            <View
+              row
+              centerV
+              marginT-12
+              padding-14
+              style={{
+                backgroundColor: "#1E1E1E",
+                borderRadius: moderateScale(16),
+              }}
+            >
+              <View
+                center
+                style={{
+                  width: moderateScale(44),
+                  height: moderateScale(44),
+                  borderRadius: moderateScale(22),
+                  backgroundColor: theme.color.primary,
+                }}
+              >
+                <Text bold small style={{ color: "#000" }}>
+                  {organizerInitials || "•"}
+                </Text>
+              </View>
+              <View flex marginL-12>
+                <Text semibold small style={{ color: "#fff" }} numberOfLines={1}>
+                  {organizerName}
+                </Text>
+                {!!organizerSubtitle && (
+                  <Text
+                    extraSmall
+                    regular
+                    style={{ color: "#818898", marginTop: 2 }}
+                    numberOfLines={1}
+                  >
+                    {organizerSubtitle}
+                  </Text>
+                )}
+                {(organizerEmail || organizerPhone) && (
+                  <Text
+                    extraSmall
+                    regular
+                    style={{ color: "#6C6C6C", marginTop: 2 }}
+                    numberOfLines={1}
+                  >
+                    {organizerEmail || organizerPhone}
+                  </Text>
+                )}
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* Description */}
         <View marginT-22>
@@ -350,8 +526,9 @@ const ProviderEventDetail = () => {
           {actionKind === "checkin" && (
             <>
               <CustomButton
-                label="Check-In"
-                onPress={() => router.push("/(main)/(provider)/StartJob")}
+                label={checkingIn ? "Checking in…" : "Check-In"}
+                onPress={handleCheckIn}
+                disabled={checkingIn || !event?.id}
                 backgroundColor={theme.color.primary}
                 style={{ width: "100%" }}
               />

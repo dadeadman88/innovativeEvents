@@ -1,30 +1,300 @@
+import BackButton from "@/components/BackButton";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
-import SuccessDialog from "@/components/SuccessDialog";
+import { EventActions, EventTask } from "@/redux/actions/EventActions";
+import { useToast } from "@/redux/actions/hooks/useOthers";
+import { resetCheckIn, startCheckIn } from "@/redux/slices/EventSlice";
+import { AppDispatch, RootState } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
-import { router } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import { moderateScale } from "react-native-size-matters";
-import { Image, Text, TouchableOpacity, View } from "react-native-ui-lib";
+import { useDispatch, useSelector } from "react-redux";
+import {
+    Image,
+    Text,
+    ToastPresets,
+    TouchableOpacity,
+    View,
+} from "react-native-ui-lib";
+
+/** Format seconds (>=0) into a zero-padded 2-digit string. */
+function pad2(n: number): string {
+    const v = Math.max(0, Math.floor(n));
+    return v < 10 ? `0${v}` : String(v);
+}
+
+/**
+ * Break a duration in seconds into clamped {hours, minutes, seconds}
+ * components for the session-time card. Hours are capped at 99 so the UI
+ * never breaks if a forgotten check-in runs for days.
+ */
+function splitDuration(totalSeconds: number): {
+    hours: string;
+    minutes: string;
+    seconds: string;
+} {
+    const safe = Math.max(0, Math.floor(totalSeconds));
+    const hours = Math.min(99, Math.floor(safe / 3600));
+    const minutes = Math.floor((safe % 3600) / 60);
+    const seconds = safe % 60;
+    return {
+        hours: pad2(hours),
+        minutes: pad2(minutes),
+        seconds: pad2(seconds),
+    };
+}
+
+type EvidencePhoto = {
+    uri: string;
+    mimeType?: string | null;
+    fileName?: string | null;
+};
 
 const StartJob = () => {
-    const [checkoutSuccessVisible, setCheckoutSuccessVisible] = React.useState(false);
-    const [tasks, setTasks] = React.useState([
-        { id: "t1", label: "Safety equipment check-in", done: true, info: false },
-        { id: "t2", label: "Equipment setup & power-on", done: true, info: false },
-        { id: "t3", label: "Main unit internal cleaning", done: false, info: true },
-        { id: "t4", label: "Filter replacement & testing", done: false, info: false },
-        { id: "t5", label: "Exterior panel seal replacement", done: false, info: false },
-    ]);
+    const dispatch = useDispatch<AppDispatch>();
+    const { Toaster } = useToast();
 
-    const completedCount = tasks.filter((t) => t.done).length;
-    const totalCount = tasks.length;
+    /**
+     * The event id is forwarded from `providerEventDetail` after a successful
+     * `event/checkin/add` POST. We read the live event object from the redux
+     * events slice so we always reflect the latest data (title, tasks, etc.)
+     * rather than a snapshot stuffed into URL params.
+     */
+    const { eventId: eventIdParam } = useLocalSearchParams<{ eventId?: string }>();
+    const eventId = Array.isArray(eventIdParam) ? eventIdParam[0] : eventIdParam;
+    const event = useSelector((s: RootState) =>
+        eventId ? s.events.byId[eventId] ?? null : null
+    );
+
+    /**
+     * Wall-clock timestamp of the contractor's first successful check-in for
+     * this event. Stored in redux so the elapsed time keeps growing across
+     * navigation — re-entering this screen "resumes" the timer instead of
+     * resetting it. Subsequent check-ins for the same event leave this value
+     * untouched (see `startCheckIn` in EventSlice).
+     */
+    const startedAt = useSelector((s: RootState) =>
+        eventId ? s.events.checkInStartedAtById[eventId] ?? null : null
+    );
+
+    /**
+     * Defensive fallback: if we somehow landed on this screen with a known
+     * event but no recorded start time (e.g. a hot reload, or a future deep
+     * link that bypasses the detail screen), seed the timer to "now". The
+     * reducer is a no-op when a start time already exists, so this can't
+     * accidentally reset an already-running timer.
+     */
+    React.useEffect(() => {
+        if (!eventId) return;
+        if (startedAt != null) return;
+        dispatch(startCheckIn({ eventId }));
+    }, [dispatch, eventId, startedAt]);
+
+    /**
+     * Re-render once a second so the elapsed time string updates. We just
+     * track `now` locally — the source of truth (`startedAt`) lives in redux
+     * and is shared across mounts.
+     */
+    const [now, setNow] = React.useState(() => Date.now());
+    React.useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, []);
+
+    const elapsedSeconds = React.useMemo(() => {
+        if (startedAt == null) return 0;
+        return Math.max(0, Math.floor((now - startedAt) / 1000));
+    }, [now, startedAt]);
+
+    const { hours, minutes, seconds } = React.useMemo(
+        () => splitDuration(elapsedSeconds),
+        [elapsedSeconds]
+    );
+
+    const headerTitle = event?.title?.trim()
+        ? event.title
+        : eventId
+        ? `Job #${eventId}`
+        : "Job";
+
+    /**
+     * Build the Required-Tasks list from `event.tasks` (set by the customer
+     * during event creation). Each entry preserves the backend `id` so we
+     * can send the completed task ids back to `event/checkout/add`.
+     *
+     * Per-row completion state is tracked locally — the backend doesn't
+     * return per-task progress yet, so this is purely UI state scoped to
+     * the screen mount.
+     */
+    const taskItems = React.useMemo<EventTask[]>(() => {
+        const list = event?.tasks ?? [];
+        return list.filter((t): t is EventTask => !!t && !!t.name && !!t.name.trim());
+    }, [event?.tasks]);
+
+    const [doneByIndex, setDoneByIndex] = React.useState<Record<number, boolean>>({});
+    const toggleTask = React.useCallback((idx: number) => {
+        setDoneByIndex((prev) => ({ ...prev, [idx]: !prev[idx] }));
+    }, []);
+
+    const completedCount = React.useMemo(
+        () => taskItems.reduce((acc, _t, i) => acc + (doneByIndex[i] ? 1 : 0), 0),
+        [taskItems, doneByIndex]
+    );
+    const totalCount = taskItems.length;
     const progress = totalCount === 0 ? 0 : completedCount / totalCount;
 
-    const toggleTask = (id: string) => {
-        setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
-    };
+    /**
+     * Evidence photo for the job. Required at check-out time.
+     *
+     * Tapping the "UPLOAD PHOTO" tile opens the image library and stores
+     * the picked asset here; the placeholder on the right then renders the
+     * thumbnail with a close button overlay (same pattern as
+     * `verifyProvider.tsx`).
+     */
+    const [evidencePhoto, setEvidencePhoto] = React.useState<EvidencePhoto | null>(null);
+    const [photoPickerBusy, setPhotoPickerBusy] = React.useState(false);
+
+    const handlePickPhoto = React.useCallback(async () => {
+        if (photoPickerBusy) return;
+        setPhotoPickerBusy(true);
+        try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== "granted") {
+                Toaster({
+                    visible: true,
+                    preset: ToastPresets.FAILURE,
+                    message: "Photo library access is required to upload evidence.",
+                });
+                return;
+            }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: "images",
+                allowsMultipleSelection: false,
+                quality: 0,
+                exif: false,
+                preferredAssetRepresentationMode:
+                    ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+            });
+
+            if (result.canceled || !result.assets?.[0]?.uri) return;
+
+            const asset = result.assets[0];
+            setEvidencePhoto({
+                uri: asset.uri,
+                mimeType: asset.mimeType,
+                fileName: asset.fileName,
+            });
+        } finally {
+            setPhotoPickerBusy(false);
+        }
+    }, [photoPickerBusy, Toaster]);
+
+    const removeEvidencePhoto = React.useCallback(() => {
+        setEvidencePhoto(null);
+    }, []);
+
+    const [checkingOut, setCheckingOut] = React.useState(false);
+
+    /**
+     * Gate the Check-Out flow on:
+     *   1. Every required task is checked off (only enforced when there's
+     *      at least one task — events without a tasks list skip this).
+     *   2. The contractor has uploaded an evidence photo.
+     *
+     * Once both gates pass we POST to `event/checkout/add` with the event
+     * id, a hard-coded "Job completed" description, and the list of
+     * backend task ids. The evidence photo is intentionally NOT uploaded
+     * here per the current product spec (JSON body only).
+     *
+     * On success the session timer for this event is cleared, a success
+     * toast is shown, and we replace navigation back to the provider home
+     * tab. `replace` (instead of `push`) is deliberate: there's no useful
+     * back-target inside a completed job's StartJob screen, and the home
+     * tab's `useFocusEffect` will refetch the assignment list so the
+     * event's status badge flips to "completed" automatically.
+     *
+     * Failures show a clear toast pointing at the missing piece. Tasks are
+     * checked first so the contractor finishes the work before being told
+     * to take a photo of it.
+     */
+    const handleCheckOutPress = React.useCallback(async () => {
+        if (checkingOut) return;
+        if (totalCount > 0 && completedCount < totalCount) {
+            Toaster({
+                visible: true,
+                preset: ToastPresets.FAILURE,
+                message: "Please complete all required tasks before checking out.",
+            });
+            return;
+        }
+        if (!evidencePhoto) {
+            Toaster({
+                visible: true,
+                preset: ToastPresets.FAILURE,
+                message: "Please upload a photo before checking out.",
+            });
+            return;
+        }
+        if (!eventId) {
+            Toaster({
+                visible: true,
+                preset: ToastPresets.FAILURE,
+                message: "Couldn't determine which job to check out.",
+            });
+            return;
+        }
+
+        // Only forward task ids the backend gave us. A task with no id is
+        // either from an older API shape or a parsing miss — silently drop
+        // it from the payload rather than sending a bogus value.
+        const taskIds = taskItems
+            .map((t) => t.id)
+            .filter((id): id is string => !!id && !!id.trim());
+
+        setCheckingOut(true);
+        try {
+            await dispatch(
+                EventActions.ContractorCheckout({
+                    eventId,
+                    taskIds,
+                    description: "Job completed",
+                })
+            ).unwrap();
+            // Job's done — clear the session timer for this event so a
+            // future check-in (if any) starts at 00:00:00 again.
+            dispatch(resetCheckIn({ eventId }));
+            Toaster({
+                visible: true,
+                preset: ToastPresets.SUCCESS,
+                message: "Job completed successfully.",
+            });
+            router.replace("/(main)/(provider)/(tabs)/home");
+        } catch {
+            // The checkout endpoint is in the caller-handled axios
+            // whitelist (no auto logout on 401, no auto failure toast),
+            // so surface a generic failure here.
+            Toaster({
+                visible: true,
+                preset: ToastPresets.FAILURE,
+                message: "Checkout couldn't be completed, please try again.",
+            });
+        } finally {
+            setCheckingOut(false);
+        }
+    }, [
+        checkingOut,
+        totalCount,
+        completedCount,
+        evidencePhoto,
+        eventId,
+        taskItems,
+        dispatch,
+        Toaster,
+    ]);
 
     return (
         <Container
@@ -41,10 +311,19 @@ const StartJob = () => {
         >
             {/* Header */}
             <View row centerV style={{ paddingVertical: 6 }}>
-                <View width={moderateScale(44)} />
+                <BackButton
+                    color="#fff"
+                    style={{
+                        width: moderateScale(44),
+                        height: moderateScale(44),
+                        marginBottom: 0,
+                        alignItems: "flex-start",
+                        justifyContent: "center",
+                    }}
+                />
                 <View flex center>
-                    <Text semibold regularSize style={{ color: "#fff" }}>
-                        Job #4563
+                    <Text semibold regularSize numberOfLines={1} style={{ color: "#fff" }}>
+                        {headerTitle}
                     </Text>
                 </View>
                 <View width={moderateScale(44)} />
@@ -65,9 +344,9 @@ const StartJob = () => {
 
                 <View row centerH marginT-14 style={{ gap: moderateScale(10) }}>
                     {[
-                        { value: "02", label: "Hours" },
-                        { value: "45", label: "Minutes" },
-                        { value: "12", label: "Seconds" },
+                        { value: hours, label: "Hours" },
+                        { value: minutes, label: "Minutes" },
+                        { value: seconds, label: "Seconds" },
                     ].map((b) => (
                         <View key={b.label} center style={{ width: moderateScale(78) }}>
                             <View
@@ -125,64 +404,72 @@ const StartJob = () => {
             </Text>
 
             <View marginT-12 style={{ gap: moderateScale(12) }}>
-                {tasks.map((t) => (
-                    <TouchableOpacity
-                        key={t.id}
-                        row
-                        centerV
-                        activeOpacity={0.85}
-                        onPress={() => toggleTask(t.id)}
+                {totalCount === 0 ? (
+                    <View
+                        center
+                        padding-16
                         style={{
                             backgroundColor: "#1E1E1E",
                             borderRadius: moderateScale(14),
-                            paddingVertical: moderateScale(14),
-                            paddingHorizontal: moderateScale(14),
                         }}
                     >
-                        <View
-                            center
-                            style={{
-                                width: moderateScale(22),
-                                height: moderateScale(22),
-                                borderRadius: moderateScale(6),
-                                borderWidth: 2,
-                                borderColor: t.done ? theme.color.primary : "#6C6C6C",
-                                backgroundColor: t.done ? theme.color.primary : "transparent",
-                            }}
-                        >
-                            {t.done ? (
-                                <Icon vector="Ionicons" name="checkmark" size={14} color="#fff" />
-                            ) : null}
-                        </View>
-
-                        <Text
-                            flex
-                            marginL-12
-                            regular
-                            style={{
-                                color: t.done ? "#818898" : "#fff",
-                                textDecorationLine: t.done ? "line-through" : "none",
-                            }}
-                        >
-                            {t.label}
+                        <Text small regular style={{ color: "#818898", textAlign: "center" }}>
+                            No tasks were specified for this job.
                         </Text>
-
-                        {t.info ? (
-                            <View
-                                center
+                    </View>
+                ) : (
+                    taskItems.map((task, idx) => {
+                        const done = !!doneByIndex[idx];
+                        return (
+                            <TouchableOpacity
+                                key={task.id ?? `${idx}-${task.name}`}
+                                row
+                                centerV
+                                activeOpacity={0.85}
+                                onPress={() => toggleTask(idx)}
                                 style={{
-                                    width: moderateScale(22),
-                                    height: moderateScale(22),
-                                    borderRadius: moderateScale(11),
-                                    borderWidth: 1,
-                                    borderColor: "#6C6C6C",
+                                    backgroundColor: "#1E1E1E",
+                                    borderRadius: moderateScale(14),
+                                    paddingVertical: moderateScale(14),
+                                    paddingHorizontal: moderateScale(14),
                                 }}
                             >
-                                <Icon vector="Ionicons" name="information" size={14} color="#818898" />
-                            </View>
-                        ) : null}
-                    </TouchableOpacity>
-                ))}
+                                <View
+                                    center
+                                    style={{
+                                        width: moderateScale(22),
+                                        height: moderateScale(22),
+                                        borderRadius: moderateScale(6),
+                                        borderWidth: 2,
+                                        borderColor: done ? theme.color.primary : "#6C6C6C",
+                                        backgroundColor: done ? theme.color.primary : "transparent",
+                                    }}
+                                >
+                                    {done ? (
+                                        <Icon
+                                            vector="Ionicons"
+                                            name="checkmark"
+                                            size={14}
+                                            color="#fff"
+                                        />
+                                    ) : null}
+                                </View>
+
+                                <Text
+                                    flex
+                                    marginL-12
+                                    regular
+                                    style={{
+                                        color: done ? "#818898" : "#fff",
+                                        textDecorationLine: done ? "line-through" : "none",
+                                    }}
+                                >
+                                    {task.name}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })
+                )}
             </View>
 
             {/* Evidence & Forms */}
@@ -193,6 +480,7 @@ const StartJob = () => {
             <View row marginT-12 style={{ gap: moderateScale(12) }}>
                 <TouchableOpacity
                     activeOpacity={0.85}
+                    disabled={photoPickerBusy}
                     style={{
                         flex: 1,
                         height: moderateScale(110),
@@ -203,8 +491,9 @@ const StartJob = () => {
                         borderColor: "#2A2A2A",
                         alignItems: "center",
                         justifyContent: "center",
+                        opacity: photoPickerBusy ? 0.6 : 1,
                     }}
-                    onPress={() => {}}
+                    onPress={handlePickPhoto}
                 >
                     <Icon vector="Ionicons" name="camera-outline" size={22} color={theme.color.primary} />
                     <Text marginT-8 semibold extraSmall style={{ color: "#818898" }}>
@@ -212,20 +501,76 @@ const StartJob = () => {
                     </Text>
                 </TouchableOpacity>
 
+                {/*
+                 * Evidence photo placeholder. Empty state has a blue dashed
+                 * outline matching the upload tile's primary color; once a
+                 * photo is picked it renders the thumbnail with a circular
+                 * close button (same pattern used for document thumbnails
+                 * in `verifyProvider.tsx`).
+                 */}
                 <View
                     style={{
                         flex: 1,
                         height: moderateScale(110),
                         backgroundColor: "#1E1E1E",
                         borderRadius: moderateScale(16),
+                        borderWidth: 1.5,
+                        borderStyle: evidencePhoto ? "solid" : "dashed",
+                        borderColor: theme.color.primary,
                         overflow: "hidden",
+                        alignItems: "center",
+                        justifyContent: "center",
                     }}
                 >
-                    <Image
-                        source={{ uri: "https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?q=80&w=2400&auto=format&fit=crop" }}
-                        style={{ width: "100%", height: "100%" }}
-                        resizeMode="cover"
-                    />
+                    {evidencePhoto ? (
+                        <>
+                            <Image
+                                source={{ uri: evidencePhoto.uri }}
+                                style={{ width: "100%", height: "100%" }}
+                                resizeMode="cover"
+                            />
+                            <TouchableOpacity
+                                activeOpacity={0.8}
+                                onPress={removeEvidencePhoto}
+                                hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+                                style={{
+                                    position: "absolute",
+                                    top: moderateScale(6),
+                                    right: moderateScale(6),
+                                    width: moderateScale(28),
+                                    height: moderateScale(28),
+                                    borderRadius: moderateScale(14),
+                                    backgroundColor: "rgba(0,0,0,0.65)",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                }}
+                            >
+                                <Icon
+                                    vector="Feather"
+                                    name="x"
+                                    size={moderateScale(18)}
+                                    color="#fff"
+                                />
+                            </TouchableOpacity>
+                        </>
+                    ) : (
+                        <>
+                            <Icon
+                                vector="Ionicons"
+                                name="image-outline"
+                                size={22}
+                                color={theme.color.primary}
+                            />
+                            <Text
+                                marginT-8
+                                semibold
+                                extraSmall
+                                style={{ color: "#818898", textAlign: "center" }}
+                            >
+                                PHOTO PREVIEW
+                            </Text>
+                        </>
+                    )}
                 </View>
             </View>
 
@@ -274,8 +619,9 @@ const StartJob = () => {
             {/* Check-Out */}
             <View marginT-20>
                 <CustomButton
-                    label="Check-Out"
-                    onPress={() => setCheckoutSuccessVisible(true)}
+                    label={checkingOut ? "Checking out…" : "Check-Out"}
+                    onPress={handleCheckOutPress}
+                    disabled={checkingOut}
                     backgroundColor="#EF4444"
                     iconSource={require("@/assets/images/logout.png")}
                     iconStyle={{
@@ -287,16 +633,6 @@ const StartJob = () => {
                 />
             </View>
 
-            <SuccessDialog
-                visible={checkoutSuccessVisible}
-                onDismiss={() => setCheckoutSuccessVisible(false)}
-                title="Job done successfully"
-                buttonLabel="OK"
-                onButtonPress={() => {
-                    setCheckoutSuccessVisible(false);
-                    router.replace("/(main)/(provider)/(tabs)/home");
-                }}
-            />
         </Container>
     );
 };

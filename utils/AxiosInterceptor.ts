@@ -45,6 +45,22 @@ const EVENT_LIST_PATH_SUFFIXES = [
   eventEndpoints.contractorAssignedAll,
 ] as const;
 
+/**
+ * Endpoints whose errors are entirely the caller's problem. For these we:
+ *   - never force a global logout / redirect on 401, AND
+ *   - never show the default FAILURE toast on any other error status.
+ *
+ * Use this for requests where the call-site needs to translate the failure
+ * into something user-meaningful (e.g. "You have already checked in" for
+ * `event/checkin/add` is not the same as the raw backend message, and we
+ * don't want a stale 401 to bounce the contractor out to the welcome screen
+ * mid-job).
+ */
+const CALLER_HANDLED_PATH_SUFFIXES = [
+  eventEndpoints.checkinAdd,
+  eventEndpoints.checkoutAdd,
+] as const;
+
 function resolveRequestUrl(url: string | undefined, baseURL?: string): string {
   const raw = (url ?? "").trim();
   if (!raw) return (baseURL ?? "").trim();
@@ -59,6 +75,13 @@ function isEventListRequestUrl(url: string | undefined, baseURL?: string): boole
   const full = resolveRequestUrl(url, baseURL);
   if (!full) return false;
   return EVENT_LIST_PATH_SUFFIXES.some((suffix) => full.includes(suffix));
+}
+
+/** Endpoints whose errors are surfaced/handled entirely by the calling code. */
+function isCallerHandledRequestUrl(url: string | undefined, baseURL?: string): boolean {
+  const full = resolveRequestUrl(url, baseURL);
+  if (!full) return false;
+  return CALLER_HANDLED_PATH_SUFFIXES.some((suffix) => full.includes(suffix));
 }
 
 // Lazy store getter to avoid circular dependency
@@ -106,13 +129,14 @@ client.interceptors.response.use(
     if (getStore) {
       getStore().dispatch(setLoading(false));
       const status = error.response?.status;
-      console.log("Axios error response", error.config?.headers, status, error.config?.url);
+      const requestUrl = error.config?.url;
+      const requestBase = error.config?.baseURL;
+      const isCallerHandled = isCallerHandledRequestUrl(requestUrl, requestBase);
+      console.log("Axios error response", error.config?.headers, status, requestUrl);
       if (status === 401) {
-        const requestUrl = error.config?.url;
-        const requestBase = error.config?.baseURL;
         const isEventList = isEventListRequestUrl(requestUrl, requestBase);
 
-        if (isPublicAuthRequestUrl(requestUrl) || isEventList) {
+        if (isPublicAuthRequestUrl(requestUrl) || isEventList || isCallerHandled) {
           const message = getAxiosErrorMessage(error);
           const isCheckEmail =
             requestUrl === authEndpoints.checkEmail ||
@@ -120,7 +144,7 @@ client.interceptors.response.use(
           const treatAsSuccess =
             isCheckEmail && message.toLowerCase().includes("does not exist");
 
-          if (!treatAsSuccess && !isEventList) {
+          if (!treatAsSuccess && !isEventList && !isCallerHandled) {
             getStore().dispatch(
               showHideToast({
                 visible: true,
@@ -134,7 +158,7 @@ client.interceptors.response.use(
           router.replace("/(initialRoute)/getStarted");
         }
       }
-      else {
+      else if (!isCallerHandled) {
         getStore().dispatch(
           showHideToast({
             visible: true,

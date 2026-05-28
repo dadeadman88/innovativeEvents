@@ -10,12 +10,25 @@ import { EventActions } from "@/redux/actions/EventActions";
 import { useToast } from "@/redux/actions/hooks/useOthers";
 import { AppDispatch } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
+import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import * as React from "react";
 import { TouchableOpacity } from "react-native";
 import { useDispatch } from "react-redux";
 import { moderateScale, verticalScale } from "react-native-size-matters";
-import { Text, ToastPresets, View } from "react-native-ui-lib";
+import { Image, Text, ToastPresets, View } from "react-native-ui-lib";
+
+/**
+ * Optional document attachment picked from the user's photo library.
+ * Mirrors the shape used by `StartJob.tsx`'s `EvidencePhoto`. Held in
+ * component state only — not part of the form payload because the
+ * `event/add` API doesn't accept an attachment yet.
+ */
+type AttachedDocument = {
+  uri: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+};
 
 /** Fixed event address until location picking is enabled */
 const EVENT_ADDRESS = "7th street, San Francisco, CA";
@@ -109,9 +122,95 @@ const CreateEvent = () => {
     startTime: "",
     endTime: "",
     additionalDetails: "",
+    /**
+     * Free-form list of task descriptions for the event. UI lets the user
+     * add/remove rows (1–10). One empty row is kept by default so the field
+     * is immediately usable.
+     */
+    tasks: [""] as string[],
   });
 
+  const MAX_TASKS = 10;
+
+  const updateTaskAt = React.useCallback((index: number, value: string) => {
+    setForm((p) => ({
+      ...p,
+      tasks: p.tasks.map((t, i) => (i === index ? value : t)),
+    }));
+  }, []);
+
+  const addTask = React.useCallback(() => {
+    setForm((p) =>
+      p.tasks.length >= MAX_TASKS ? p : { ...p, tasks: [...p.tasks, ""] }
+    );
+  }, []);
+
+  const removeTaskAt = React.useCallback((index: number) => {
+    setForm((p) => {
+      // Keep at least one row so the section never collapses entirely.
+      if (p.tasks.length <= 1) return p;
+      return {
+        ...p,
+        tasks: p.tasks.filter((_, i) => i !== index),
+      };
+    });
+  }, []);
+
   const [successVisible, setSuccessVisible] = React.useState(false);
+
+  /**
+   * Optional attachment for the event. Tapping the "Attach document" row
+   * opens the image library and stores the picked asset here. Rendered as
+   * a thumbnail card below the row with a close button, identical to the
+   * pattern in `StartJob.tsx`.
+   *
+   * The current `event/add` API does NOT accept this field — it's stored
+   * only for visual feedback and isn't included in the create-event
+   * payload. Wire it up to the API once the backend accepts multipart.
+   */
+  const [attachedDocument, setAttachedDocument] =
+    React.useState<AttachedDocument | null>(null);
+  const [documentPickerBusy, setDocumentPickerBusy] = React.useState(false);
+
+  const handleAttachDocument = React.useCallback(async () => {
+    if (documentPickerBusy) return;
+    setDocumentPickerBusy(true);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Toaster({
+          visible: true,
+          preset: ToastPresets.FAILURE,
+          message: "Photo library access is required to attach a document.",
+        });
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "images",
+        allowsMultipleSelection: false,
+        quality: 0,
+        exif: false,
+        preferredAssetRepresentationMode:
+          ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) return;
+
+      const asset = result.assets[0];
+      setAttachedDocument({
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        fileName: asset.fileName,
+      });
+    } finally {
+      setDocumentPickerBusy(false);
+    }
+  }, [documentPickerBusy, Toaster]);
+
+  const removeAttachedDocument = React.useCallback(() => {
+    setAttachedDocument(null);
+  }, []);
 
   const showValidationToast = React.useCallback(
     (message: string) => {
@@ -140,6 +239,10 @@ const CreateEvent = () => {
       return showValidationToast("Enter how many staff members you need (at least 1)");
     }
     if (!form.service.trim()) return showValidationToast("Please select a service");
+    const trimmedTasks = form.tasks.map((t) => t.trim()).filter(Boolean);
+    if (trimmedTasks.length === 0) {
+      return showValidationToast("Please add at least one task");
+    }
     if (!parseYYYYMMDD(form.eventDate)) return showValidationToast("Event date is required");
     const startT = parseHHMMSS(form.startTime);
     const endT = parseHHMMSS(form.endTime);
@@ -163,6 +266,7 @@ const CreateEvent = () => {
           event_start_time: form.startTime.trim(),
           event_end_time: form.endTime.trim(),
           event_description: form.additionalDetails.trim(),
+          tasks: trimmedTasks,
         })
       ).unwrap();
       setSuccessVisible(true);
@@ -297,6 +401,63 @@ const CreateEvent = () => {
           style={{ color: "#fff" }}
         />
 
+        {/* Tasks (1–10 rows). Each row has a remove icon (when more than one
+            row exists); the "Add more" pill below appends a new row up to
+            MAX_TASKS. */}
+        <Text marginT-16 semibold small style={{ color: "#fff" }}>
+          Tasks:
+        </Text>
+        {form.tasks.map((task, idx) => (
+          <View key={`task-${idx}`} marginT-10>
+            <Input
+              placeholder={`Task ${idx + 1}`}
+              value={task}
+              onChangeText={(t) => updateTaskAt(idx, t)}
+              labelProps={{ style: inputLabelStyle } as any}
+              fieldStyle={inputFieldStyle}
+              placeholderTextColor="#818898"
+              style={{ color: "#fff" }}
+              trailingAccessory={
+                form.tasks.length > 1 ? (
+                  <TouchableOpacity
+                    onPress={() => removeTaskAt(idx)}
+                    hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                  >
+                    <Icon
+                      vector="Ionicons"
+                      name="close-circle"
+                      size={20}
+                      color="#818898"
+                    />
+                  </TouchableOpacity>
+                ) : undefined
+              }
+            />
+          </View>
+        ))}
+        {form.tasks.length < MAX_TASKS && (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={addTask}
+            style={{
+              marginTop: 12,
+              alignSelf: "flex-start",
+              paddingHorizontal: moderateScale(14),
+              paddingVertical: moderateScale(8),
+              borderRadius: moderateScale(20),
+              borderWidth: 1,
+              borderColor: theme.color.primary,
+              flexDirection: "row",
+              alignItems: "center",
+            }}
+          >
+            <Icon vector="Ionicons" name="add" size={16} color={theme.color.primary} />
+            <Text small semibold style={{ color: theme.color.primary, marginLeft: 6 }}>
+              Add more
+            </Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           activeOpacity={1}
           disabled
@@ -395,12 +556,16 @@ const CreateEvent = () => {
           </View>
         </View>
 
-        {/* Documents */}
+        {/* Documents (optional). Tapping the row opens the image library;
+            once a file is picked we render a thumbnail card below with an
+            "x" close button so the user can swap or remove the
+            attachment. The asset is not posted to the API yet. */}
         <Text marginT-18 semibold small style={{ color: "#fff" }}>
           Documents
         </Text>
         <TouchableOpacity
           activeOpacity={0.8}
+          disabled={documentPickerBusy}
           style={{
             marginTop: 10,
             backgroundColor: "#1E1E1E",
@@ -409,20 +574,58 @@ const CreateEvent = () => {
             paddingHorizontal: moderateScale(16),
             flexDirection: "row",
             alignItems: "center",
+            opacity: documentPickerBusy ? 0.6 : 1,
           }}
-          onPress={() => {
-            Toaster({
-              visible: true,
-              message: "Document attachment is coming soon.",
-              preset: ToastPresets.SUCCESS,
-            });
-          }}
+          onPress={handleAttachDocument}
         >
           <Text small regular style={{ color: "#818898", flex: 1 }}>
-            Attach document
+            {attachedDocument ? "Replace document" : "Attach document"}
           </Text>
           <Icon vector="Ionicons" name="document-text-outline" size={20} color={theme.color.primary} />
         </TouchableOpacity>
+
+        {attachedDocument ? (
+          <View
+            marginT-10
+            style={{
+              height: moderateScale(220),
+              backgroundColor: "#1E1E1E",
+              borderRadius: moderateScale(16),
+              borderWidth: 1.5,
+              borderColor: theme.color.primary,
+              overflow: "hidden",
+            }}
+          >
+            <Image
+              source={{ uri: attachedDocument.uri }}
+              style={{ width: "100%", height: "100%" }}
+              resizeMode="cover"
+            />
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={removeAttachedDocument}
+              hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+              style={{
+                position: "absolute",
+                top: moderateScale(8),
+                right: moderateScale(8),
+                width: moderateScale(28),
+                height: moderateScale(28),
+                borderRadius: moderateScale(14),
+                backgroundColor: "rgba(0,0,0,0.65)",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Icon
+                vector="Feather"
+                name="x"
+                size={moderateScale(18)}
+                color="#fff"
+              />
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Additional Details */}
         <Text marginT-18 semibold small style={{ color: "#fff" }}>

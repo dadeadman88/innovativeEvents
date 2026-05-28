@@ -22,7 +22,9 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ],
       "package": "com.innovativeevents.app"
     },
@@ -50,6 +52,12 @@
         "expo-image-picker",
         {
           "photosPermission": "The app accesses your photos to upload profile picture and to create a bid."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to access your location to confirm you are at the job site when you check in."
         }
       ],
       "expo-font",

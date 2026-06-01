@@ -5,19 +5,18 @@ import Icon from "@/components/Icon";
 import Input from "@/components/Input";
 import { AuthActions } from "@/redux/actions/AuthActions";
 import { useToast } from "@/redux/actions/hooks/useOthers";
+import { setLoading } from "@/redux/slices/OtherSlice";
 import { AppDispatch } from "@/redux/store";
-import { getMainRouteForRole } from "@/utils/authNavigation";
 import client from "@/utils/AxiosInterceptor";
 import { theme } from "@/utils/designSystem";
 import { authEndpoints } from "@/utils/Endpoints";
-import { type Href, router, useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import { useState } from "react";
 import { ScrollView, TouchableOpacity } from "react-native";
 import { moderateScale, verticalScale } from "react-native-size-matters";
 import { Checkbox, Text, ToastPresets, View } from "react-native-ui-lib";
 import { useDispatch } from "react-redux";
-import { setLoading } from "@/redux/slices/OtherSlice";
 
 const Signup = () => {
   const dispatch = useDispatch<AppDispatch>();
@@ -450,14 +449,38 @@ const Signup = () => {
           />
           <Text small regular style={{ color: "#818898", flex: 1 }}>
             I’ve read and agreed to{" "}
-            <Text small semibold style={{ color: theme.color.primary }}>
-              User Agreement
+            <Text
+              small
+              semibold
+              style={{ color: theme.color.primary }}
+              // The about screen routes content from a `title`-keyed
+              // registry. The legal doc lives there under the key
+              // "Terms & Conditions"; route to that exact key so the
+              // T&C copy renders rather than the Lorem ipsum fallback.
+              onPress={() =>
+                router.push({
+                  pathname: "/about",
+                  params: { title: "Terms & Conditions" },
+                })
+              }
+            >
+              Terms of Service
             </Text>
             <Text small regular style={{ color: "#818898" }}>
               {" "}
               and{" "}
             </Text>
-            <Text small semibold style={{ color: theme.color.primary }}>
+            <Text
+              small
+              semibold
+              style={{ color: theme.color.primary }}
+              onPress={() =>
+                router.push({
+                  pathname: "/about",
+                  params: { title: "Privacy Policy" },
+                })
+              }
+            >
               Privacy Policy
             </Text>
           </Text>

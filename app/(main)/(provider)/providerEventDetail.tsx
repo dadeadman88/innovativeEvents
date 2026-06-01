@@ -2,10 +2,12 @@ import BackButton from "@/components/BackButton";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
+import LocationCheckDialog from "@/components/LocationCheckDialog";
 import { CustomerEventListItem, EventActions } from "@/redux/actions/EventActions";
 import { useToast } from "@/redux/actions/hooks/useOthers";
 import { startCheckIn } from "@/redux/slices/EventSlice";
 import { AppDispatch, RootState } from "@/redux/store";
+import { CHECKIN_RADIUS_METERS, distanceMeters } from "@/utils/distance";
 import { theme } from "@/utils/designSystem";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Location from "expo-location";
@@ -94,6 +96,38 @@ const ProviderEventDetail = () => {
   const [claimed, setClaimed] = React.useState(false);
   const [checkingIn, setCheckingIn] = React.useState(false);
 
+  /**
+   * Holds the geofence-confirmation popup state for check-in. Stays
+   * `null` while the dialog is closed; populated with a snapshot of the
+   * device fix at the moment "Check-In" was tapped. The dialog reads
+   * `userCoords` / `withinRadius` / `distance` from here, so the popup
+   * doesn't re-poll GPS itself.
+   */
+  const [checkinDialog, setCheckinDialog] = React.useState<{
+    visible: boolean;
+    userCoords: { latitude: number; longitude: number } | null;
+    withinRadius: boolean;
+    distance: number;
+    busy: boolean;
+  }>({
+    visible: false,
+    userCoords: null,
+    withinRadius: false,
+    distance: 0,
+    busy: false,
+  });
+
+  const closeCheckinDialog = React.useCallback(() => {
+    setCheckinDialog({
+      visible: false,
+      userCoords: null,
+      withinRadius: false,
+      distance: 0,
+      busy: false,
+    });
+    setCheckingIn(false);
+  }, []);
+
   const handleClaimShift = React.useCallback(async () => {
     if (!event?.id || claiming) return;
     setClaiming(true);
@@ -129,13 +163,72 @@ const ProviderEventDetail = () => {
    * the check-in with a clear toast — we don't fall through to a coord-less
    * POST because that would defeat the geofencing intent.
    */
+  /**
+   * Hit `event/checkin/add` and continue to StartJob. Both the
+   * geofence-confirmed path (dialog Continue) and the no-event-coords
+   * fallback path call this — the only difference is which trigger
+   * opened it.
+   *
+   * Mirrors the previous handler's behavior: on a 401 (already
+   * checked-in) we surface a friendly toast and STILL navigate to
+   * StartJob, because the session UI should open either way.
+   */
+  const performCheckIn = React.useCallback(
+    async (
+      eventId: string,
+      coords: { latitude: number; longitude: number }
+    ) => {
+      try {
+        await dispatch(
+          EventActions.ContractorCheckin({
+            eventId,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          })
+        ).unwrap();
+        dispatch(startCheckIn({ eventId }));
+        router.push({
+          pathname: "/(main)/(provider)/StartJob",
+          params: { eventId },
+        });
+      } catch {
+        Toaster({
+          visible: true,
+          message: "You have already checked in.",
+          preset: ToastPresets.SUCCESS,
+        });
+        dispatch(startCheckIn({ eventId }));
+        router.push({
+          pathname: "/(main)/(provider)/StartJob",
+          params: { eventId },
+        });
+      }
+    },
+    [dispatch, Toaster]
+  );
+
+  /**
+   * Tap on Check-In:
+   *   1. Acquire a fresh device location fix.
+   *   2. If the event has pinned coordinates, open the confirmation
+   *      popup (LocationCheckDialog) and let it drive the API call:
+   *      the dialog renders a map with a 100m geofence ring, the user
+   *      pin, and the event pin so the contractor can SEE whether they
+   *      satisfy the gate. The "Continue" button calls `performCheckIn`;
+   *      the "Close" button just dismisses with no API call.
+   *   3. If the event has no coords (older events created before the
+   *      map picker shipped), skip the dialog and call the API
+   *      immediately — same behavior as before.
+   *
+   * Permission denial / GPS failure aborts before any network call so
+   * we never check the contractor in without proof of presence.
+   */
   const handleCheckIn = React.useCallback(async () => {
     if (!event?.id || checkingIn) return;
     setCheckingIn(true);
     const eventId = event.id;
 
-    // Step 1: get a device location fix BEFORE hitting the API. If this
-    // fails we never call the backend.
+    // Step 1: device location fix. If this fails we never hit the API.
     let coords: { latitude: number; longitude: number };
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -165,45 +258,68 @@ const ProviderEventDetail = () => {
       return;
     }
 
-    // Step 2: API call with the coords attached.
-    try {
-      await dispatch(
-        EventActions.ContractorCheckin({
-          eventId,
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-        })
-      ).unwrap();
-      // Lock in the session-timer start time on the FIRST successful
-      // check-in for this event. The reducer is a no-op on subsequent
-      // calls, so re-checking-in keeps the existing timer running.
-      dispatch(startCheckIn({ eventId }));
-      router.push({
-        pathname: "/(main)/(provider)/StartJob",
-        params: { eventId },
+    // Step 2: geofence dialog. We only show it when the event actually
+    // has coordinates; otherwise fall through to the legacy direct-call
+    // path. `checkingIn` stays true until the dialog closes so the
+    // background "Check-In" button stays disabled.
+    const hasEventCoords =
+      typeof event.latitude === "number" &&
+      typeof event.longitude === "number" &&
+      Number.isFinite(event.latitude) &&
+      Number.isFinite(event.longitude);
+
+    if (hasEventCoords) {
+      const meters = distanceMeters(coords, {
+        latitude: event.latitude!,
+        longitude: event.longitude!,
       });
-    } catch {
-      // The check-in endpoint is whitelisted in the axios interceptor so
-      // it neither shows the default failure toast nor force-logs-out on
-      // 401. An error here means the contractor is already checked in for
-      // this event — surface that as info and continue to the StartJob
-      // screen so the in-progress session UI still opens. `startCheckIn`
-      // is idempotent: if a timer is already running it's preserved, and
-      // if not it seeds one to "now" so StartJob has something to display.
-      Toaster({
+      const within = meters <= CHECKIN_RADIUS_METERS;
+      setCheckinDialog({
         visible: true,
-        message: "You have already checked in.",
-        preset: ToastPresets.SUCCESS,
+        userCoords: coords,
+        withinRadius: within,
+        distance: meters,
+        busy: false,
       });
-      dispatch(startCheckIn({ eventId }));
-      router.push({
-        pathname: "/(main)/(provider)/StartJob",
-        params: { eventId },
-      });
+      if (!within) {
+        Toaster({
+          visible: true,
+          message: "You are outside the location.",
+          preset: ToastPresets.FAILURE,
+        });
+      }
+      return;
+    }
+
+    // Step 3: legacy path — no event coords, hit the API directly.
+    try {
+      await performCheckIn(eventId, coords);
     } finally {
       setCheckingIn(false);
     }
-  }, [dispatch, event?.id, checkingIn, Toaster]);
+  }, [event, checkingIn, Toaster, performCheckIn]);
+
+  /**
+   * Continue button on the LocationCheckDialog (in-radius branch only).
+   * Flips the dialog into a "busy" state so the user can't double-tap,
+   * runs the API call + navigation, and finally tears the dialog down.
+   */
+  const handleConfirmCheckIn = React.useCallback(async () => {
+    if (
+      !event?.id ||
+      !checkinDialog.userCoords ||
+      checkinDialog.busy ||
+      !checkinDialog.withinRadius
+    ) {
+      return;
+    }
+    setCheckinDialog((p) => ({ ...p, busy: true }));
+    try {
+      await performCheckIn(event.id, checkinDialog.userCoords);
+    } finally {
+      closeCheckinDialog();
+    }
+  }, [event?.id, checkinDialog, performCheckIn, closeCheckinDialog]);
 
   /**
    * Find the current user's row inside the event's `assigned_list` and decide
@@ -548,6 +664,29 @@ const ProviderEventDetail = () => {
           )}
         </View>
       </View>
+
+      <LocationCheckDialog
+        visible={checkinDialog.visible}
+        onClose={closeCheckinDialog}
+        onContinue={handleConfirmCheckIn}
+        eventCoords={
+          typeof event?.latitude === "number" &&
+          typeof event?.longitude === "number" &&
+          Number.isFinite(event.latitude) &&
+          Number.isFinite(event.longitude)
+            ? {
+                latitude: event.latitude,
+                longitude: event.longitude,
+              }
+            : null
+        }
+        userCoords={checkinDialog.userCoords}
+        withinRadius={checkinDialog.withinRadius}
+        distance={checkinDialog.distance}
+        radiusMeters={CHECKIN_RADIUS_METERS}
+        action="check-in"
+        busy={checkinDialog.busy}
+      />
     </Container>
   );
 };

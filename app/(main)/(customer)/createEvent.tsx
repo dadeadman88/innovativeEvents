@@ -8,15 +8,17 @@ import PickerC from "@/components/PickerC";
 import SuccessDialog from "@/components/SuccessDialog";
 import { EventActions } from "@/redux/actions/EventActions";
 import { useToast } from "@/redux/actions/hooks/useOthers";
-import { AppDispatch } from "@/redux/store";
+import { clearPickedLocation } from "@/redux/slices/LocationSlice";
+import { AppDispatch, RootState } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
+import { useFocusEffect } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import * as React from "react";
 import { TouchableOpacity } from "react-native";
-import { useDispatch } from "react-redux";
 import { moderateScale, verticalScale } from "react-native-size-matters";
 import { Image, Text, ToastPresets, View } from "react-native-ui-lib";
+import { useDispatch, useSelector } from "react-redux";
 
 /**
  * Optional document attachment picked from the user's photo library.
@@ -29,9 +31,6 @@ type AttachedDocument = {
   mimeType?: string | null;
   fileName?: string | null;
 };
-
-/** Fixed event address until location picking is enabled */
-const EVENT_ADDRESS = "7th street, San Francisco, CA";
 
 const SERVICE_OPTIONS = [
   { label: "Event staffing & brand ambassadors", value: "Event staffing & brand ambassadors" },
@@ -118,6 +117,15 @@ const CreateEvent = () => {
     email: "",
     staffMembersRequested: "",
     service: "",
+    /**
+     * Picked event address. Filled by the `chooseLocation` screen via
+     * the Redux `LocationSlice`; not user-typed. Required.
+     */
+    address: "",
+    /** GPS coordinates of the picked address. Only set when the user
+     *  picks via the map. Omitted from the payload when undefined. */
+    latitude: undefined as number | undefined,
+    longitude: undefined as number | undefined,
     eventDate: "",
     startTime: "",
     endTime: "",
@@ -129,6 +137,35 @@ const CreateEvent = () => {
      */
     tasks: [""] as string[],
   });
+
+  /**
+   * Pull the freshest location pick from the Redux `LocationSlice` and
+   * apply it to the form. We track the slice's `pickToken` so we only
+   * re-apply the address when the user actually committed a new pick
+   * (re-rendering or re-focusing the screen with the same picked
+   * address won't trigger work).
+   *
+   * Once applied, we clear the slice so a follow-up screen that uses
+   * `chooseLocation` doesn't accidentally reuse this pick.
+   */
+  const picked = useSelector((s: RootState) => s.location.picked);
+  const pickToken = useSelector((s: RootState) => s.location.pickToken);
+  const lastAppliedToken = React.useRef<number>(0);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (picked && pickToken !== lastAppliedToken.current) {
+        lastAppliedToken.current = pickToken;
+        setForm((p) => ({
+          ...p,
+          address: picked.address,
+          latitude: picked.latitude,
+          longitude: picked.longitude,
+        }));
+        dispatch(clearPickedLocation());
+      }
+    }, [picked, pickToken, dispatch])
+  );
 
   const MAX_TASKS = 10;
 
@@ -243,6 +280,8 @@ const CreateEvent = () => {
     if (trimmedTasks.length === 0) {
       return showValidationToast("Please add at least one task");
     }
+    const address = form.address.trim();
+    if (!address) return showValidationToast("Event location is required");
     if (!parseYYYYMMDD(form.eventDate)) return showValidationToast("Event date is required");
     const startT = parseHHMMSS(form.startTime);
     const endT = parseHHMMSS(form.endTime);
@@ -261,7 +300,9 @@ const CreateEvent = () => {
           event_email: email,
           event_staff: String(Math.floor(staffN)),
           event_service: form.service.trim(),
-          address: EVENT_ADDRESS,
+          address,
+          latitude: form.latitude,
+          longitude: form.longitude,
           event_date: form.eventDate.trim(),
           event_start_time: form.startTime.trim(),
           event_end_time: form.endTime.trim(),
@@ -460,16 +501,14 @@ const CreateEvent = () => {
 
         <TouchableOpacity
           activeOpacity={1}
-          disabled
-          //onPress={() => router.push("/chooseLocation")}
+          onPress={() => router.push("/chooseLocation")}
         >
           <View pointerEvents="none">
             <Input
-              disabled
               marginT-16
               label="Event Location:"
               placeholder="Enter Location"
-              value={EVENT_ADDRESS}
+              value={form.address}
               editable={false}
               labelProps={{ style: inputLabelStyle } as any}
               fieldStyle={inputFieldStyle}

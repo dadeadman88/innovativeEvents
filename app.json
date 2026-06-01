@@ -26,7 +26,12 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
       ],
-      "package": "com.innovativeevents.app"
+      "package": "com.innovativeevents.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBIT0p8x0Wygh3z1_yXyGjLG9KnUkhEFL4"
+        }
+      }
     },
     "web": {
       "output": "static",

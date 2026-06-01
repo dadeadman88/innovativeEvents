@@ -2,16 +2,18 @@ import BackButton from "@/components/BackButton";
 import CustomButton from "@/components/Button";
 import Container from "@/components/Container";
 import Icon from "@/components/Icon";
+import LocationCheckDialog from "@/components/LocationCheckDialog";
 import { EventActions, EventTask } from "@/redux/actions/EventActions";
 import { useToast } from "@/redux/actions/hooks/useOthers";
 import { resetCheckIn, startCheckIn } from "@/redux/slices/EventSlice";
 import { AppDispatch, RootState } from "@/redux/store";
 import { theme } from "@/utils/designSystem";
+import { CHECKIN_RADIUS_METERS, distanceMeters } from "@/utils/distance";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { router, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import { moderateScale } from "react-native-size-matters";
-import { useDispatch, useSelector } from "react-redux";
 import {
     Image,
     Text,
@@ -19,6 +21,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native-ui-lib";
+import { useDispatch, useSelector } from "react-redux";
 
 /** Format seconds (>=0) into a zero-padded 2-digit string. */
 function pad2(n: number): string {
@@ -200,6 +203,43 @@ const StartJob = () => {
     const [checkingOut, setCheckingOut] = React.useState(false);
 
     /**
+     * Geofence-confirmation popup state for check-out. Same shape as
+     * the check-in dialog state on `providerEventDetail.tsx` — see that
+     * file for the rationale.
+     *
+     * `pendingTaskIds` snapshots the task ids at the moment Check-Out
+     * was tapped so the API call running off the dialog "Continue" uses
+     * the exact same payload the user just confirmed, even if the task
+     * list re-renders for any reason while the dialog is open.
+     */
+    const [checkoutDialog, setCheckoutDialog] = React.useState<{
+        visible: boolean;
+        userCoords: { latitude: number; longitude: number } | null;
+        withinRadius: boolean;
+        distance: number;
+        busy: boolean;
+        pendingTaskIds: string[];
+    }>({
+        visible: false,
+        userCoords: null,
+        withinRadius: false,
+        distance: 0,
+        busy: false,
+        pendingTaskIds: [],
+    });
+
+    const closeCheckoutDialog = React.useCallback(() => {
+        setCheckoutDialog({
+            visible: false,
+            userCoords: null,
+            withinRadius: false,
+            distance: 0,
+            busy: false,
+            pendingTaskIds: [],
+        });
+    }, []);
+
+    /**
      * Gate the Check-Out flow on:
      *   1. Every required task is checked off (only enforced when there's
      *      at least one task — events without a tasks list skip this).
@@ -220,6 +260,55 @@ const StartJob = () => {
      * Failures show a clear toast pointing at the missing piece. Tasks are
      * checked first so the contractor finishes the work before being told
      * to take a photo of it.
+     */
+    /**
+     * Hit `event/checkout/add` and continue home. Both the
+     * geofence-confirmed path (dialog Continue) and the no-event-coords
+     * fallback path call this helper. Always resets the session timer
+     * for this event on success — see `EventSlice.resetCheckIn`.
+     */
+    const performCheckout = React.useCallback(
+        async (currentEventId: string, taskIds: string[]) => {
+            try {
+                await dispatch(
+                    EventActions.ContractorCheckout({
+                        eventId: currentEventId,
+                        taskIds,
+                        description: "Job completed",
+                    })
+                ).unwrap();
+                dispatch(resetCheckIn({ eventId: currentEventId }));
+                Toaster({
+                    visible: true,
+                    preset: ToastPresets.SUCCESS,
+                    message: "Job completed successfully.",
+                });
+                router.replace("/(main)/(provider)/(tabs)/home");
+            } catch {
+                Toaster({
+                    visible: true,
+                    preset: ToastPresets.FAILURE,
+                    message: "Checkout couldn't be completed, please try again.",
+                });
+            }
+        },
+        [dispatch, Toaster]
+    );
+
+    /**
+     * Tap on Check-Out:
+     *   1. Run the existing UI-side validations (tasks done, photo
+     *      uploaded, event id present).
+     *   2. Snapshot the task ids that will be submitted.
+     *   3. If the event has pinned coordinates, fetch a device fix and
+     *      open the LocationCheckDialog. The dialog renders the map
+     *      with the pulsing 100m geofence ring; "Continue" calls
+     *      `performCheckout`, "Close" backs out with no API call.
+     *   4. Otherwise (older event with no coords) call `performCheckout`
+     *      directly — preserves the legacy behavior.
+     *
+     * The location prompt comes AFTER task / photo validations so the
+     * user finishes their work before being asked for GPS permission.
      */
     const handleCheckOutPress = React.useCallback(async () => {
         if (checkingOut) return;
@@ -248,40 +337,72 @@ const StartJob = () => {
             return;
         }
 
-        // Only forward task ids the backend gave us. A task with no id is
-        // either from an older API shape or a parsing miss — silently drop
-        // it from the payload rather than sending a bogus value.
         const taskIds = taskItems
             .map((t) => t.id)
             .filter((id): id is string => !!id && !!id.trim());
 
+        const hasEventCoords =
+            event &&
+            typeof event.latitude === "number" &&
+            typeof event.longitude === "number" &&
+            Number.isFinite(event.latitude) &&
+            Number.isFinite(event.longitude);
+
+        if (hasEventCoords) {
+            // Acquire a fresh fix, then hand off to the popup. The
+            // dialog "Continue" handler will run the actual API call.
+            try {
+                const { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== "granted") {
+                    Toaster({
+                        visible: true,
+                        message: "Location permission is required to check out.",
+                        preset: ToastPresets.FAILURE,
+                    });
+                    return;
+                }
+                const position = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                });
+                const userCoords = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                };
+                const meters = distanceMeters(userCoords, {
+                    latitude: event!.latitude!,
+                    longitude: event!.longitude!,
+                });
+                const within = meters <= CHECKIN_RADIUS_METERS;
+                setCheckoutDialog({
+                    visible: true,
+                    userCoords,
+                    withinRadius: within,
+                    distance: meters,
+                    busy: false,
+                    pendingTaskIds: taskIds,
+                });
+                if (!within) {
+                    Toaster({
+                        visible: true,
+                        preset: ToastPresets.FAILURE,
+                        message: "You are outside the location.",
+                    });
+                }
+            } catch {
+                Toaster({
+                    visible: true,
+                    preset: ToastPresets.FAILURE,
+                    message:
+                        "Couldn't get your location. Make sure GPS is on and try again.",
+                });
+            }
+            return;
+        }
+
+        // Legacy path — no event coords, hit the API directly.
         setCheckingOut(true);
         try {
-            await dispatch(
-                EventActions.ContractorCheckout({
-                    eventId,
-                    taskIds,
-                    description: "Job completed",
-                })
-            ).unwrap();
-            // Job's done — clear the session timer for this event so a
-            // future check-in (if any) starts at 00:00:00 again.
-            dispatch(resetCheckIn({ eventId }));
-            Toaster({
-                visible: true,
-                preset: ToastPresets.SUCCESS,
-                message: "Job completed successfully.",
-            });
-            router.replace("/(main)/(provider)/(tabs)/home");
-        } catch {
-            // The checkout endpoint is in the caller-handled axios
-            // whitelist (no auto logout on 401, no auto failure toast),
-            // so surface a generic failure here.
-            Toaster({
-                visible: true,
-                preset: ToastPresets.FAILURE,
-                message: "Checkout couldn't be completed, please try again.",
-            });
+            await performCheckout(eventId, taskIds);
         } finally {
             setCheckingOut(false);
         }
@@ -291,9 +412,41 @@ const StartJob = () => {
         completedCount,
         evidencePhoto,
         eventId,
+        event,
         taskItems,
-        dispatch,
         Toaster,
+        performCheckout,
+    ]);
+
+    /**
+     * Continue button on the LocationCheckDialog (in-radius branch
+     * only). Drives `performCheckout` with the snapshot of task ids
+     * captured when the dialog was opened so the payload matches what
+     * the user confirmed.
+     */
+    const handleConfirmCheckout = React.useCallback(async () => {
+        if (
+            !eventId ||
+            !checkoutDialog.withinRadius ||
+            checkoutDialog.busy
+        ) {
+            return;
+        }
+        setCheckoutDialog((p) => ({ ...p, busy: true }));
+        setCheckingOut(true);
+        try {
+            await performCheckout(eventId, checkoutDialog.pendingTaskIds);
+        } finally {
+            setCheckingOut(false);
+            closeCheckoutDialog();
+        }
+    }, [
+        eventId,
+        checkoutDialog.withinRadius,
+        checkoutDialog.busy,
+        checkoutDialog.pendingTaskIds,
+        performCheckout,
+        closeCheckoutDialog,
     ]);
 
     return (
@@ -587,7 +740,13 @@ const StartJob = () => {
                         justifyContent: "center",
                         gap: 8,
                     }}
-                    onPress={() => router.push("/(main)/(provider)/chatScreen?name=Group%20Chat")}
+                    onPress={() =>
+                        Toaster({
+                            visible: true,
+                            preset: ToastPresets.GENERAL,
+                            message: "There should be more than 1 members to start a chat.",
+                        })
+                    }
                 >
                     <Icon vector="Ionicons" name="chatbubble-ellipses-outline" size={18} color="#fff" />
                     <Text semibold style={{ color: "#fff" }}>
@@ -607,11 +766,17 @@ const StartJob = () => {
                         justifyContent: "center",
                         gap: 8,
                     }}
-                    onPress={() => {}}
+                    onPress={() =>
+                        Toaster({
+                            visible: true,
+                            preset: ToastPresets.GENERAL,
+                            message: "Coming Soon",
+                        })
+                    }
                 >
                     <Icon vector="Ionicons" name="document-text-outline" size={18} color="#000" />
                     <Text semibold style={{ color: "#000" }}>
-                        Completion Form
+                        Recap Forms
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -633,6 +798,29 @@ const StartJob = () => {
                 />
             </View>
 
+            <LocationCheckDialog
+                visible={checkoutDialog.visible}
+                onClose={closeCheckoutDialog}
+                onContinue={handleConfirmCheckout}
+                eventCoords={
+                    event &&
+                    typeof event.latitude === "number" &&
+                    typeof event.longitude === "number" &&
+                    Number.isFinite(event.latitude) &&
+                    Number.isFinite(event.longitude)
+                        ? {
+                              latitude: event.latitude,
+                              longitude: event.longitude,
+                          }
+                        : null
+                }
+                userCoords={checkoutDialog.userCoords}
+                withinRadius={checkoutDialog.withinRadius}
+                distance={checkoutDialog.distance}
+                radiusMeters={CHECKIN_RADIUS_METERS}
+                action="check-out"
+                busy={checkoutDialog.busy}
+            />
         </Container>
     );
 };

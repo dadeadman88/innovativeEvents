@@ -24,4 +24,8 @@ export const eventEndpoints = {
   checkoutAdd: "event/checkout/add",
 } as const;
 
+export const notificationEndpoints = {
+  all: "notification/all",
+} as const;
+
 

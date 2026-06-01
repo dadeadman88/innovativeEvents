@@ -25,7 +25,7 @@ export type EventTask = {
   name: string;
 };
 
-/** Normalized row for customer “My Events” list + detail (from GET event/all items) */
+  /** Normalized row for customer “My Events” list + detail (from GET event/all items) */
 export type CustomerEventListItem = {
   id: string;
   title: string;
@@ -38,6 +38,15 @@ export type CustomerEventListItem = {
   service?: string;
   contactPhone?: string;
   contactEmail?: string;
+  /**
+   * GPS coordinates of the event location, when available. The backend
+   * may send them as numbers OR as numeric strings — `mapRowToListItem`
+   * normalizes both to `number` here. Older events (created before the
+   * map picker shipped) may not have coords at all, in which case
+   * geofencing checks (check-in / checkout proximity) are skipped.
+   */
+  latitude?: number;
+  longitude?: number;
   /**
    * Display name of the customer who created the event. Read primarily from
    * the nested `user.fullname` field returned by the backend, with several
@@ -240,6 +249,18 @@ function mapRowToListItem(row: Record<string, unknown>, index: number): Customer
     optField(row, "event_email", "email") ||
     (user ? optField(user, "email") : undefined);
 
+  // Coordinates can come in as numbers or as numeric strings — accept
+  // either, but only keep finite results so downstream callers can rely
+  // on `Number.isFinite(latitude)` as the "has coords" check.
+  const latRaw = row.latitude ?? row.lat ?? row.event_latitude;
+  const lngRaw = row.longitude ?? row.lng ?? row.lon ?? row.event_longitude;
+  const latNum =
+    typeof latRaw === "number" ? latRaw : latRaw != null ? Number(latRaw) : NaN;
+  const lngNum =
+    typeof lngRaw === "number" ? lngRaw : lngRaw != null ? Number(lngRaw) : NaN;
+  const latitude = Number.isFinite(latNum) ? latNum : undefined;
+  const longitude = Number.isFinite(lngNum) ? lngNum : undefined;
+
   return {
     id: id || `event-${index}`,
     title,
@@ -252,6 +273,8 @@ function mapRowToListItem(row: Record<string, unknown>, index: number): Customer
     service: optField(row, "event_service", "service"),
     contactPhone,
     contactEmail,
+    latitude,
+    longitude,
     organizerName,
     organizerTitle,
     organizerCompany,
@@ -267,6 +290,9 @@ export type CreateEventPayload = {
   event_staff: string;
   event_service: string;
   address: string;
+  /** GPS coordinates of the picked address. Sent only when present. */
+  latitude?: number;
+  longitude?: number;
   event_date: string;
   event_start_time: string;
   event_end_time: string;
@@ -515,7 +541,7 @@ export const EventActions = {
     "event/create",
     async (payload: CreateEventPayload, thunkAPI) => {
       thunkAPI.dispatch(setLoading(true));
-      const { data } = await client.post<unknown>(eventEndpoints.add, {
+      const body: Record<string, unknown> = {
         event_name: payload.event_name,
         event_phone: payload.event_phone,
         event_email: payload.event_email,
@@ -527,7 +553,17 @@ export const EventActions = {
         event_end_time: payload.event_end_time,
         event_description: payload.event_description,
         tasks: payload.tasks,
-      });
+      };
+      // Backend expects coordinates as STRINGS (not numbers) — sending
+      // numeric values trips a server-side validation error. Stringify
+      // here so callers can keep working with proper number types.
+      if (typeof payload.latitude === "number" && Number.isFinite(payload.latitude)) {
+        body.latitude = String(payload.latitude);
+      }
+      if (typeof payload.longitude === "number" && Number.isFinite(payload.longitude)) {
+        body.longitude = String(payload.longitude);
+      }
+      const { data } = await client.post<unknown>(eventEndpoints.add, body);
       return data;
     }
   ),

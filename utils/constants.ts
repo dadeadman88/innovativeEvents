@@ -5,6 +5,9 @@ import { Alert, Dimensions, Platform } from "react-native";
 export const SCREEN_WIDTH = Dimensions.get("window").width;
 export const SCREEN_HEIGHT = Dimensions.get("window").height;
 
+//Google Maps API Key
+export const GOOGLE_MAPS_API_KEY = "AIzaSyBIT0p8x0Wygh3z1_yXyGjLG9KnUkhEFL4";
+
 /** Shown on provider home when the logged-in user has no profile image URL from the API. */
 export const CONTRACTOR_PROFILE_AVATAR_URL =
   "https://thumbs.dreamstime.com/b/faceless-businessman-avatar-man-suit-blue-tie-human-profile-userpic-face-features-web-picture-gentlemen-85824471.jpg";

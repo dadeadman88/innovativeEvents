@@ -163,6 +163,7 @@ const Home = () => {
       }}
     >
       <View row spread centerV>
+        {/*
         <TouchableOpacity
           row
           centerV
@@ -180,6 +181,18 @@ const Home = () => {
           </Text>
           <Icon vector="Ionicons" name="chevron-down" size={18} color="#818898" style={{ marginLeft: 4 }} />
         </TouchableOpacity>
+        */}
+
+        <View 
+          row
+          centerV
+          paddingV-10
+        >
+
+        <Text semibold small style={{ color: "#fff" }}>
+            Hello, {fullName || "there"} 👋
+        </Text>
+        </View>
 
         <TouchableOpacity
           style={{
@@ -197,10 +210,6 @@ const Home = () => {
           />
         </TouchableOpacity>
       </View>
-
-      <Text marginT-20 small regular style={{ color: "#818898" }}>
-        Hello, {fullName || "there"} 👋
-      </Text>
 
       <Text bold large32 marginT-8 style={{ color: "#fff", lineHeight: moderateScale(40) }}>
         Let's find various events around you!

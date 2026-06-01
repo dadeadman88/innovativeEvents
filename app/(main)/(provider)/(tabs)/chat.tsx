@@ -61,22 +61,7 @@ const Chat = () => {
         },
     ];
 
-    const GROUP_CHATS: ChatItem[] = [
-        {
-            id: "g1",
-            title: "Project Group",
-            preview: "New updates are available for your job...",
-            time: "17 Feb 2026",
-            avatar: { uri: "https://i.pravatar.cc/100?img=21" },
-        },
-        {
-            id: "g2",
-            title: "Service Team",
-            preview: "Schedule change confirmed for tomorrow...",
-            time: "17 Feb 2026",
-            avatar: { uri: "https://i.pravatar.cc/100?img=29" },
-        },
-    ];
+    const GROUP_CHATS: ChatItem[] = [];
 
     const activeChats = activeTab === "private" ? PRIVATE_CHATS : GROUP_CHATS;
 
@@ -103,7 +88,9 @@ const Chat = () => {
                 <View width={moderateScale(44)} />
             </View>
 
-            {/* Tabs */}
+            {/* Tabs (Private / Group) hidden for now — single listing only.
+                Uncomment to bring back tab switching. */}
+            {/*
             <View row style={{ marginTop: 10 }}>
                 <TouchableOpacity
                     flex
@@ -136,6 +123,7 @@ const Chat = () => {
                     </Text>
                 </TouchableOpacity>
             </View>
+            */}
 
             {/* List */}
             <View style={{ marginTop: 18, flex: 1 }}>
@@ -143,6 +131,29 @@ const Chat = () => {
                     data={activeChats}
                     keyExtractor={(i) => i.id}
                     showsVerticalScrollIndicator={false}
+                    // flexGrow: 1 so the ListEmptyComponent can use the
+                    // full available height and vertically center itself.
+                    contentContainerStyle={
+                        activeChats.length === 0
+                            ? { flexGrow: 1, justifyContent: "center", alignItems: "center" }
+                            : undefined
+                    }
+                    ListEmptyComponent={
+                        <View center paddingH-24>
+                            <Text semibold regularSize style={{ color: "#fff" }}>
+                                No chats found
+                            </Text>
+                            <Text
+                                small
+                                regular
+                                center
+                                marginT-6
+                                style={{ color: "#818898" }}
+                            >
+                                You don't have any conversations yet.
+                            </Text>
+                        </View>
+                    }
                     renderItem={({ item }: { item: ChatItem }) => (
                         <TouchableOpacity
                             activeOpacity={0.8}
